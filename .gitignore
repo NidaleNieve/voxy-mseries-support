@@ -8,3 +8,7 @@
 
 # macOS
 .DS_Store
+
+# Keep local launcher configuration and Gradle cache private.
+/.gradle-local/
+/.voxy-deploy-mods
