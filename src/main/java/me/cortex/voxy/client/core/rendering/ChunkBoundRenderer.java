@@ -313,7 +313,9 @@ public class ChunkBoundRenderer {
                 Logger.info("[Metal-LODTEST] bound-mask trans split OFF: using full section bounds");
             }
         }
-        this.coverage = SectionCoverageTracker.INSTANCE.subscribe();
+        this.coverage = SectionCoverageTracker.INSTANCE.subscribe(
+                RenderBackendFactory.get().getType() == me.cortex.voxy.client.core.gpu.BackendType.OPENGL
+                        ? SectionCoverageTracker.Delivery.DELTAS : SectionCoverageTracker.Delivery.GENERATION_RESET);
     }
 
     //Bind and render, changing as little gl state as possible so that the caller may configure how it wants to render

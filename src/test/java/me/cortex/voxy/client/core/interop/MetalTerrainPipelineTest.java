@@ -5,60 +5,40 @@ import me.cortex.voxy.client.core.gpu.GraphicsPipelineDesc;
 import me.cortex.voxy.client.core.gpu.PipelineState;
 import me.cortex.voxy.client.core.gpu.VertexLayout;
 import me.cortex.voxy.client.core.metal.MetalRenderBackend;
-import me.cortex.voxy.client.core.util.MetalVxGbufferEmitter;
 import me.cortex.voxy.common.Logger;
 
-import java.util.LinkedHashMap;
 
 /** Establishes on-device linking before later shader-definition or pipeline refactors. */
 public final class MetalTerrainPipelineTest {
     public static void main(String[] args) {
+        net.minecraft.SharedConstants.tryDetectVersion(); net.minecraft.server.Bootstrap.bootStrap();
         Logger.SHUTUP = true;
         MetalRenderBackend backend = new MetalRenderBackend();
-        try {
-            String vertex = ShaderLoader.parseAndStripPrintf("voxy:lod/gl46/quads3.vert");
-            String fragment = ShaderLoader.parseAndStripPrintf("voxy:lod/gl46/quads.frag");
-            for (boolean material : new boolean[]{false, true}) {
-                for (boolean translucent : new boolean[]{false, true}) {
-                    var defines = new LinkedHashMap<String, String>();
-                    defines.put("NO_SHADE_FACE_TINT", "1.0f");
-                    defines.put("UP_FACE_TINT", "1.0f");
-                    defines.put("DOWN_FACE_TINT", "0.5f");
-                    defines.put("Z_AXIS_FACE_TINT", "0.8f");
-                    defines.put("X_AXIS_FACE_TINT", "0.6f");
-                    defines.put("VOXY_FORCE_OPAQUE_ALPHA", "");
-                    defines.put("VOXY_METAL_TINT", "");
-                    defines.put("VOXY_METAL_BI_FIX", "");
-                    defines.put("VOXY_LOD_FIXED_MIP", "");
-                    defines.put("VOXY_LOD_DIST_MIP", "");
-                    defines.put("VOXY_ATLAS_MAX_LOD", "3.0");
-                    defines.put("VOXY_LOD_DIST_MIP_BIAS", "0.0000");
-                    defines.put("VOXY_LOD_ABS_INDENT", "");
-                    defines.put("VOXY_WLOG_TINT_FIX", "");
-                    if (material) {
-                        defines.put("PATCHED_SHADER", "");
-                        defines.put("VOXY_VX_GBUFFER", "");
-                    } else {
-                        defines.put("USE_ENV_FOG", "");
-                        defines.put("VOXY_LOD_BRIGHTNESS", "0.9200");
-                    }
-                    if (translucent) {
-                        defines.put("TRANSLUCENT", "");
-                        defines.put("VOXY_WATER_FAR_ALPHA", "");
-                        defines.put("VOXY_WATER_DEPTH_BIAS", "0");
-                    }
-                    String label = (material ? "material" : "shaders-off") + (translucent ? "/water" : "/opaque");
-                    var state = new PipelineState(
-                            translucent && !material ? PipelineState.DepthState.TEST_NO_WRITE : PipelineState.DepthState.DEFAULT,
-                            translucent && !material ? PipelineState.BlendState.PREMULTIPLIED_ALPHA : PipelineState.BlendState.OPAQUE,
-                            PipelineState.RasterState.NO_CULL);
-                    try (var pipeline = backend.createGraphicsPipeline(new GraphicsPipelineDesc(
-                            vertex, material ? fragment + MetalVxGbufferEmitter.SOURCE : fragment, defines,
-                            null, null, null, null,
-                            material ? new int[]{0x8058, 0x8058, 0x8058} : new int[]{0x8058},
-                            VertexLayout.EMPTY, state, label))) {
-                        if (pipeline == null) throw new AssertionError("missing " + label);
-                        System.out.println("PASS: Metal compiles and links " + label);
+        try (var context = new TestGlContext(); var minecraft = org.mockito.Mockito.mockStatic(net.minecraft.client.Minecraft.class)) {
+            var client = org.mockito.Mockito.mock(net.minecraft.client.Minecraft.class);
+            client.level = org.mockito.Mockito.mock(net.minecraft.client.multiplayer.ClientLevel.class);
+            org.mockito.Mockito.when(client.level.getShade(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean())).thenAnswer(call -> {
+                if (!(boolean)call.getArgument(1)) return 1.0f;
+                return switch ((net.minecraft.core.Direction)call.getArgument(0)) {
+                    case UP -> 1.0f; case DOWN -> 0.5f; case NORTH, SOUTH -> 0.8f; case EAST, WEST -> 0.6f;
+                };
+            });
+            minecraft.when(net.minecraft.client.Minecraft::getInstance).thenReturn(client);
+            for (var mode : me.cortex.voxy.client.core.MetalMaterialPolicy.values()) {
+                for (boolean taa : new boolean[]{false, true}) {
+                    var policy = org.mockito.Mockito.mock(me.cortex.voxy.client.core.AbstractRenderPipeline.class);
+                    org.mockito.Mockito.when(policy.materialPolicy()).thenReturn(mode);
+                    org.mockito.Mockito.when(policy.vxMaterialMode()).thenReturn(mode != me.cortex.voxy.client.core.MetalMaterialPolicy.SHADERS_OFF);
+                    org.mockito.Mockito.when(policy.vxOpaqueMaterialMode()).thenReturn(mode.opaque());
+                    org.mockito.Mockito.when(policy.useEnvFog()).thenReturn(mode == me.cortex.voxy.client.core.MetalMaterialPolicy.SHADERS_OFF);
+                    if (taa) org.mockito.Mockito.when(policy.taaFunction("taaShift")).thenReturn("vec2 taaShift() { return vec2(0.0); }");
+                    var configuration = me.cortex.voxy.client.core.rendering.section.backend.mdic.TerrainShaderConfiguration.load(
+                            policy, me.cortex.voxy.client.core.gpu.BackendType.METAL);
+                    for (var descriptor : new GraphicsPipelineDesc[]{configuration.opaque(), configuration.translucent()}) {
+                        try (var compiled = backend.createGraphicsPipeline(descriptor)) {
+                            if (compiled == null) throw new AssertionError("missing " + descriptor.label);
+                            System.out.println("PASS: production Metal pipeline " + mode + "/" + descriptor.label + "/taa=" + taa);
+                        }
                     }
                 }
             }

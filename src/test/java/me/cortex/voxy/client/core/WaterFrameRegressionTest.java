@@ -28,9 +28,9 @@ public final class WaterFrameRegressionTest {
     private static void frames() throws Exception {
         Class<?> state=Class.forName("me.cortex.voxy.client.core.MaterialFrameState");
         Object generation=new Object(),other=new Object(),frames=state.getConstructor(Object.class).newInstance(generation);
-        var begin=state.getMethod("begin",Object.class,int.class,boolean.class);
-        var publish=state.getMethod("publish",int.class);
-        var consume=state.getMethod("consume",Object.class,int.class);
+        var begin=state.getMethod("begin",Object.class,long.class,boolean.class);
+        var publish=state.getMethod("publish",long.class);
+        var consume=state.getMethod("consume",Object.class,long.class);
         require(!(boolean)begin.invoke(frames,generation,1,true),"shadow pass rendered material frame");
         require((boolean)begin.invoke(frames,generation,1,false),"normal frame rejected");
         require(!(boolean)consume.invoke(frames,generation,1),"incomplete frame resolved");

@@ -17,25 +17,44 @@ public class SectionSavingService {
     private final Service service;
     private record SaveEntry(WorldEngine engine, WorldSection section) {}
     private final ConcurrentLinkedDeque<SaveEntry> saveQueue = new ConcurrentLinkedDeque<>();
+    // Failed attempts keep their queue flag and reference: unload cannot discard them.
+    private final ConcurrentLinkedDeque<SaveEntry> failedSaves = new ConcurrentLinkedDeque<>();
+    private volatile Exception lastFailure;
 
     public SectionSavingService(ServiceManager sm) {
         this.service = sm.createServiceNoCleanup(() -> this::processJob, 100, "Section saving service");
     }
 
     private void processJob() {
-        var task = this.saveQueue.pop();
+        this.save(this.saveQueue.pop());
+    }
+
+    private void save(SaveEntry task) {
         var section = task.section;
         section.assertNotFree();
         try {
-            //Unmark it dirty here (if it wasnt or w/e) so that it doesnt pointlessly resave (in theory this should be safe to do)
+            // Writes during storage.saveSection mark it dirty again. Keep the queue
+            // claim until completion so a second worker cannot overlap this attempt.
             section.setNotDirty();
-            if (section.exchangeIsInSaveQueue(false)) {
-                task.engine.storage.saveSection(section);
-            }
+            task.engine.storage.saveSection(section);
         } catch (Exception e) {
-            Logger.error("Voxy saver had an exception while executing please check logs and report error", e);
+            section.markDirty();
+            this.lastFailure = e;
+            this.failedSaves.add(task);
+            Logger.error("Voxy cache save failed; dirty section retained for retry", e);
+            return;
         }
+        section.exchangeIsInSaveQueue(false);
         section.release();
+    }
+
+    /** Explicit, bounded recovery: each retained attempt is tried once, without a busy retry loop. */
+    public synchronized void retryFailedSaves() {
+        int count = this.failedSaves.size();
+        for (int i = 0; i < count; i++) {
+            var task = this.failedSaves.poll();
+            if (task != null) this.save(task);
+        }
     }
 
     /*
@@ -89,6 +108,11 @@ public class SectionSavingService {
         //Manually save any remaining entries
         while (!this.saveQueue.isEmpty()) {
             this.processJob();
+        }
+        this.retryFailedSaves();
+        if (!this.failedSaves.isEmpty()) {
+            throw new IllegalStateException("Voxy cache shutdown retained " + this.failedSaves.size()
+                    + " unsaved dirty sections", this.lastFailure);
         }
     }
 

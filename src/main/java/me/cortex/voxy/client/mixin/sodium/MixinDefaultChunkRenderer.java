@@ -182,10 +182,9 @@ public abstract class MixinDefaultChunkRenderer extends ShaderChunkRenderer {
                     return;
                 }
                 var pipeline=renderer.getPipeline();
-                if (pipeline instanceof me.cortex.voxy.client.core.MetalVxRenderPipeline material && !material.beginMaterialFrame()) return;
-                Viewport<?> viewport = null;
-                viewport = me.cortex.voxy.client.core.WorldFrameCapture.prepare(renderer,
+                Viewport<?> viewport = me.cortex.voxy.client.core.WorldFrameCapture.prepareTerrain(renderer,
                         matrices, fogParameters, camera.x, camera.y, camera.z);
+                if (viewport == null) return;
                 this.voxy$prepareDrawCoverage(renderer, commandList, renderLists, camera, indexedRenderingEnabled);
                 renderer.renderOpaque(viewport);
 

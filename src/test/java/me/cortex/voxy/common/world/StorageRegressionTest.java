@@ -43,6 +43,54 @@ public final class StorageRegressionTest {
 
     public static void main(String[] args) throws Exception {
         SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();
+        check("failed write retains dirty data and retry persists it", () -> {
+            var fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+            var storage = new SectionSerializationStorage(new MemoryStorageBackend(1)) {
+                @Override public void saveSection(WorldSection section) {
+                    if (fail.get()) throw new IllegalStateException("injected write failure");
+                    super.saveSection(section);
+                }
+            };
+            var engine = new WorldEngine(storage);
+            var manager = new ServiceManager(count -> {});
+            var saver = new SectionSavingService(manager); connectSaver(engine, saver);
+            var section = engine.acquire(0, 11, 12, 13);
+            section.data[0] = 9L << 27; engine.markDirty(section); engine.saveSection(section);
+            manager.tryRunAJob();
+            expect(section.isDirty, "failed storage write marked section clean");
+            expect(section.inSaveQueue && section.getRefCount() == 2, "failed attempt lost saving ownership");
+            section.data[0] = 10L << 27; engine.markDirty(section);
+            fail.set(false);
+            saver.getClass().getMethod("retryFailedSaves").invoke(saver);
+            expect(!section.isDirty && !section.inSaveQueue && section.getRefCount() == 1, "retry retained or lost ownership");
+            section.release();
+            var reloaded = WorldSection._createRawUntrackedUnsafeSection(0, 11, 12, 13);
+            expect(storage.loadSection(reloaded) == 0 && reloaded.data[0] == 10L << 27, "retry did not persist latest data");
+            saver.shutdown(); manager.shutdown(); engine.free();
+        });
+        check("persistent write failure is bounded and shutdown reports it", () -> {
+            var fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+            var attempts = new java.util.concurrent.atomic.AtomicInteger();
+            var error = new IllegalStateException("persistent injected write failure");
+            var storage = new SectionSerializationStorage(new MemoryStorageBackend(1)) {
+                @Override public void saveSection(WorldSection section) {
+                    attempts.incrementAndGet();
+                    if (fail.get()) throw error;
+                    super.saveSection(section);
+                }
+            };
+            var engine = new WorldEngine(storage); var manager = new ServiceManager(count -> {});
+            var saver = new SectionSavingService(manager); connectSaver(engine, saver);
+            var section = engine.acquire(0, 21, 22, 23);
+            engine.markDirty(section); engine.saveSection(section); manager.tryRunAJob();
+            expect(section.isDirty, "persistent failure lost dirty state");
+            expect(saver.getTaskCount() == 0 && attempts.get() == 1, "failure created a busy retry loop");
+            try { saver.shutdown(); throw new AssertionError("shutdown silently accepted lost saves"); }
+            catch (IllegalStateException expected) { expect(expected.getCause() == error, "shutdown lost storage failure cause"); }
+            expect(attempts.get() == 2 && section.isDirty && section.inSaveQueue, "shutdown retried unboundedly or discarded data");
+            fail.set(false); saver.getClass().getMethod("retryFailedSaves").invoke(saver);
+            section.release(); manager.shutdown(); engine.free();
+        });
         check("dirty changes survive while a save is already queued", () -> {
             var storage = new SectionSerializationStorage(new MemoryStorageBackend(1));
             var engine = new WorldEngine(storage);

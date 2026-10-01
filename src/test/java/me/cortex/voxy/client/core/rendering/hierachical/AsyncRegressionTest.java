@@ -34,6 +34,28 @@ public final class AsyncRegressionTest {
         var backend = mock(RenderBackend.class);
         when(backend.createComputePipeline(any())).thenReturn(mock(IGpuPipeline.class));
         RenderBackendFactory.set(backend);
+        check("interrupted stop still joins worker before freeing GPU owners", () -> {
+            var manager = manager();
+            var entered = new java.util.concurrent.CountDownLatch(1);
+            var exit = new java.util.concurrent.CountDownLatch(1);
+            var worker = new Thread(() -> { entered.countDown(); try { exit.await(); } catch (InterruptedException error) { throw new AssertionError(error); } });
+            field("thread").set(manager, worker); worker.start();
+            if (!entered.await(3, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("worker did not start");
+            var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+            var interrupted = new java.util.concurrent.atomic.AtomicBoolean();
+            var stopper = new Thread(() -> {
+                Thread.currentThread().interrupt();
+                try { manager.stop(); } catch (Throwable error) { failure.set(error); }
+                interrupted.set(Thread.currentThread().isInterrupted());
+            });
+            stopper.start();
+            long deadline = System.nanoTime() + 3_000_000_000L;
+            while (stopper.isAlive() && stopper.getState() != Thread.State.WAITING && System.nanoTime() < deadline) Thread.yield();
+            exit.countDown(); worker.join(3000); stopper.join(3000);
+            if (stopper.isAlive() || failure.get() != null || !interrupted.get()) {
+                throw new AssertionError("stop failed to quiesce with interrupt preserved: " + failure.get());
+            }
+        });
         check("geometry batches stop after approximately 1 MiB without dropping queued meshes", () -> {
             var manager = manager();
             var nodes = (NodeManager)field("manager").get(manager);

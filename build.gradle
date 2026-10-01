@@ -492,6 +492,8 @@ tasks.register('testMetalTerrainPipelines', JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'me.cortex.voxy.client.core.interop.MetalTerrainPipelineTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
 }
 
 tasks.register('testMetalTraversal', JavaExec) {
@@ -864,9 +866,71 @@ tasks.register('verifyCpu') {
             'testDiagnosticWindow', 'testShaderLoading', 'testMaterialUniforms',
             'testIrisUniforms', 'testWaterFrames', 'testBslSourcePatchScope', 'testBslAssembly'
 }
+
+tasks.register('testCoverageConsumption', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.rendering.CoverageConsumptionRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
 tasks.register('verifyMetal') {
     group = 'verification'
     description = 'On-device GL/Metal regressions, including actual Complementary programs; use -PcomplementaryPack.'
     dependsOn 'testGlInterop', 'testMetalResolve', 'testMetalBake', 'testMetalTerrainPipelines',
-            'testMetalTraversal', 'testWaterDepthBridge', 'testMaterialContract'
+            'testMetalTraversal', 'testWaterDepthBridge', 'testMaterialContract', 'testCoverageConsumption', 'testRendererOwnership'
 }
+tasks.register('testRendererOwnership', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.RendererOwnershipRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.register('testTerrainConfiguration', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.rendering.TerrainConfigurationRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    if (project.hasProperty('recordTerrainConfiguration')) systemProperty 'voxy.recordTerrainConfiguration', 'true'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.named('verifyMetal') { dependsOn 'testTerrainConfiguration' }
+tasks.register('testWorldFrameProtocol', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.WorldFrameProtocolRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.named('verifyMetal') { dependsOn 'testWorldFrameProtocol' }
+tasks.register('testPublication', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.rendering.hierachical.PublicationRegressionTest'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.named('verifyCpu') { dependsOn 'testPublication' }
+tasks.register('testFrameTargets', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.FrameTargetRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.named('verifyMetal') { dependsOn 'testFrameTargets' }
+tasks.register('testMdicOwnership', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.rendering.MdicOwnershipRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.named('verifyMetal') { dependsOn 'testMdicOwnership' }

@@ -9,6 +9,7 @@ import java.util.Map;
 public final class SectionCoverageTracker {
     public static final SectionCoverageTracker INSTANCE = new SectionCoverageTracker();
     public enum Coverage { NONE, OPAQUE, TRANSLUCENT }
+    public enum Delivery { DELTAS, GENERATION_RESET }
     public record Generation(long id) {}
     public record Update(boolean reset, long generation, Map<Long, Coverage> changes) {}
 
@@ -32,7 +33,7 @@ public final class SectionCoverageTracker {
     private void clear() {
         this.coverage.clear();
         for (var subscriber : this.subscribers) {
-            subscriber.pending.clear();
+            if (subscriber.pending != null) subscriber.pending.clear();
             subscriber.reset = true;
         }
     }
@@ -42,7 +43,9 @@ public final class SectionCoverageTracker {
         if (state == coverageAt(position)) return true;
         if (state == Coverage.NONE) this.coverage.remove(position);
         else this.coverage.put(position, state);
-        for (var subscriber : this.subscribers) subscriber.pending.put(position, state);
+        for (var subscriber : this.subscribers) {
+            if (subscriber.pending != null) subscriber.pending.put(position, state);
+        }
         return true;
     }
 
@@ -53,23 +56,30 @@ public final class SectionCoverageTracker {
     }
 
     public synchronized Subscription subscribe() {
-        var subscription = new Subscription();
-        subscription.pending.putAll(this.coverage);
+        return this.subscribe(Delivery.DELTAS);
+    }
+
+    public synchronized Subscription subscribe(Delivery delivery) {
+        var subscription = new Subscription(delivery);
+        if (subscription.pending != null) subscription.pending.putAll(this.coverage);
         this.subscribers.add(subscription);
         return subscription;
     }
 
     public final class Subscription implements AutoCloseable {
-        private final Long2ObjectOpenHashMap<Coverage> pending = new Long2ObjectOpenHashMap<>();
+        private final Long2ObjectOpenHashMap<Coverage> pending;
         private boolean reset = true;
         private boolean closed;
-        private Subscription() {}
+        private Subscription(Delivery delivery) {
+            this.pending = delivery == Delivery.DELTAS ? new Long2ObjectOpenHashMap<>() : null;
+        }
 
         public Update drain() {
             synchronized (SectionCoverageTracker.this) {
                 if (this.closed) throw new IllegalStateException("Coverage subscription is closed");
-                var update = new Update(this.reset, generation == null ? 0 : generation.id(), Map.copyOf(this.pending));
-                this.pending.clear();
+                var update = new Update(this.reset, generation == null ? 0 : generation.id(),
+                        this.pending == null ? Map.of() : Map.copyOf(this.pending));
+                if (this.pending != null) this.pending.clear();
                 this.reset = false;
                 return update;
             }
@@ -79,7 +89,7 @@ public final class SectionCoverageTracker {
             synchronized (SectionCoverageTracker.this) {
                 if (this.closed) return;
                 this.closed = true;
-                this.pending.clear();
+                if (this.pending != null) this.pending.clear();
                 subscribers.remove(this);
             }
         }
