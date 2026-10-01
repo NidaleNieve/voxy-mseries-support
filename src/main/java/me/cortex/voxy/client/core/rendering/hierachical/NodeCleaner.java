@@ -125,8 +125,12 @@ public class NodeCleaner {
     }
 
 
+    /** Called before upload publication so clear stamps and subsequent draws use the same tag. */
+    public void beginFrame(int visibilityTag) {
+        this.visibilityId = visibilityTag & 0x7fffffff;
+    }
+
     public void tick(IGpuBuffer nodeDataBuffer) {
-        this.visibilityId++;
         if (!this.shouldCleanGeometry() || this.nodeManager.getCurrentMaxNodeId() == 0) return;
 
         this.outputBuffer.fill(this.nodeManager.maxNodeCount - 2);

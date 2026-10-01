@@ -243,6 +243,7 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
             DownloadStream.INSTANCE.tick();
             TimingStatistics.D.stop();
 
+            this.nodeCleaner.beginFrame(viewport.frameId);
             this.nodeManager.tick(this.traversal.getNodeBuffer(), this.nodeCleaner);
             //glFlush();
 

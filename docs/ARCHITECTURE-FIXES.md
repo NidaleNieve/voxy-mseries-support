@@ -18,7 +18,7 @@ was used for this comparison.
 | Renderer resource ownership | `RendererLifecycle` owns acquisitions by dependency phase. Downloads finish before node shutdown; nodes, meshing, and bakery stop before upload visibility waits and resource release. Constructor rollback restores indexed GL buffer bindings. `ResourceScope` unwinds frame and MDIC resources once in reverse acquisition order and attempts independent releases after failures. Interrupted joins finish before restoring interruption. Real constructor, teardown, and worker regressions reproduce preceding failures. |
 | Transactional frame replacement | `MetalFrameTargets` acquires the complete size/mode target set before `MetalFrameRenderer` publishes it. Failed acquisition releases only the new set. Every one of 13 allocation faults retained the old set; successful replacement and unchanged-size reuse also passed. Replacement briefly holds both sets, so resize requires temporary memory headroom. |
 | Canonical terrain configuration | `TerrainShaderConfiguration` owns unpatched shader loading, defines, targets, and render state. Production MDIC and the native driver test use the same module. A characterization captured before extraction matches afterward for both backends, every material policy, and TAA on/off. Metal compiles/links all 16 corresponding terrain pipelines plus Hi-Z. The patched OpenGL Iris shader path remains separate. |
-| Main-view frame ownership | `WorldFrameCapture` publishes copied camera inputs only on successful non-shadow capture. Preparation is shared by Iris and Sodium. Material begin/publish/consume use the same long frame identity, and traversal derives its visibility tag from it. `prepareTerrain` captures a mid-frame replacement before beginning material ownership. Rejected capture, shadow capture, repeated preparation, competing Iris clock, and mid-frame replacement regressions failed before the changes. |
+| Main-view frame ownership | `WorldFrameCapture` publishes copied camera inputs only on successful non-shadow capture. Preparation is shared by Iris and Sodium. Material begin/publish/consume use the same long frame identity, and traversal derives its visibility tag from it. The cleaner consumes that tag before upload clears and retains it across repeated work. `prepareTerrain` captures a mid-frame replacement before beginning material ownership. Rejected capture, shadow capture, competing Iris clock, and mid-frame replacement regressions failed before the changes. Characterization preserves repeated preparation. The visibility-clear regression reproduced the independent cleaner counter. |
 | Coverage delivery | Metal subscribes only to generation resets, eliminating its unused upload-delta map and map copy. OpenGL still receives consolidated incremental updates. Existing upload/draw readiness, stale generation, removal, and replacement tests remain green. The production Metal subscription regression failed before the change. |
 | Failed saves | A failed write restores dirty state and retains the queue claim and section reference. Explicit bounded recovery and shutdown retry each retained entry once; persistent failure raises an error without unloading the unsaved section. Two failing regressions cover latest-data recovery and persistent failure. Existing RocksDB reopening and serialization checks pass. |
 | Geometry publication | `GeometryPublication` owns upload/scatter scratch and recording order. Geometry, metadata, and cleaner work precede readiness callbacks. Failed recording latches a generation failure, reclaims the consumed payload, and prevents continued publication. Worker assembly retains ownership until handoff. The old order and leaks were reproduced with GPU recording faults, readiness faults, and worker serialization faults. |
@@ -40,7 +40,7 @@ real Metal and invisible GL contexts with numeric assertions, not visual testing
 | Checks | Baseline | Candidate |
 | --- | --- | --- |
 | Existing Gradle CPU and GL/Metal verification tasks | 30 passed | Same 30 passed |
-| New focused verification tasks | Defects reproduced before fixes | 7 passed |
+| New focused verification tasks | Defects reproduced before fixes | 8 passed |
 | Existing deployment-tool unit tests | 13 passed | 13 passed |
 | Actual Complementary Unbound r5.9.3 programs | Compile/link and material checks passed | Same checks passed |
 | Production configuration fingerprint | Captured before extraction | Identical |
@@ -67,8 +67,8 @@ python3 -m unittest discover -s tools -p 'test*.py'
 ```
 
 The candidate adds `testPublication`, `testCoverageConsumption`, `testFrameTargets`,
-`testRendererOwnership`, `testTerrainConfiguration`, `testWorldFrameProtocol`, and
-`testMdicOwnership` to those aggregate tasks. They can also run individually.
+`testRendererOwnership`, `testTerrainConfiguration`, `testWorldFrameProtocol`,
+`testMdicOwnership`, and `testVisibilityClock` to those aggregate tasks. They can also run individually.
 
 To build without deploying:
 

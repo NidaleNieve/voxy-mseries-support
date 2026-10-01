@@ -934,3 +934,12 @@ tasks.register('testMdicOwnership', JavaExec) {
     doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
 }
 tasks.named('verifyMetal') { dependsOn 'testMdicOwnership' }
+tasks.register('testVisibilityClock', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.VisibilityClockRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.named('verifyMetal') { dependsOn 'testVisibilityClock' }

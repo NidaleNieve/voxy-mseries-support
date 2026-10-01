@@ -73,6 +73,7 @@ final class MetalFrameRenderer implements AutoCloseable {
         //    sub-stage is already encoder-backed (commits 0b963825, 68734b78,
         //    5dcbc645, 89b35814 for HOT's last raw-GL gaps).
         me.cortex.voxy.client.core.rendering.util.DownloadStream.INSTANCE.tick();
+        this.nodeCleaner.beginFrame(viewport.frameId);
         this.nodeManager.tick(this.traversal.getNodeBuffer(), this.nodeCleaner);
         this.nodeCleaner.tick(this.traversal.getNodeBuffer());
         this.traversal.doTraversal(viewport);
