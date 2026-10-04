@@ -25,6 +25,7 @@ public final class VisibilityClockRegressionTest {
         when(backend.createBuffer(anyLong())).thenAnswer(call -> mock(IGpuBuffer.class, RETURNS_SELF));
         when(backend.createTexture()).thenReturn(mock(IGpuTexture.class, RETURNS_SELF));
         when(backend.createComputePipeline(any())).thenReturn(mock(IGpuPipeline.class));
+        when(backend.createGraphicsPipeline(any())).thenReturn(mock(IGpuPipeline.class));
         when(backend.beginRenderPass(any())).thenReturn(mock(RenderEncoder.class));
         var fence = mock(IGpuFence.class); when(fence.signaled()).thenReturn(true); when(backend.createFence()).thenReturn(fence);
         var tags = new ArrayList<Integer>();

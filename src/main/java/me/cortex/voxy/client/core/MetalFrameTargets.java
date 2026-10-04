@@ -11,8 +11,9 @@ final class MetalFrameTargets implements AutoCloseable {
     record Layout(int width, int height, boolean opaqueMaterial, boolean material, boolean exportDepth, boolean splitWater) { }
     final Layout layout;
     final IOSurfaceBridge color, packedDepth, transColor, packedTransDepth;
+    final MetalPrelitResolve prelitResolve;
     final IOSurfaceBridge[] opaque, translucent;
-    final IGpuTexture depth, transDepth;
+    final IGpuTexture depth, transDepth, prelitColor;
     final IGpuBuffer depthRead, transRead;
     final MetalDepthExport export;
     final MetalDepthRestore restore;
@@ -23,6 +24,10 @@ final class MetalFrameTargets implements AutoCloseable {
         try {
             this.color = bridge(backend);
             this.depth = depth(backend).name("VoxyMetalDepth");
+            this.prelitColor = !layout.exportDepth() ? this.resources.own(backend.createTexture(), IGpuTexture::free)
+                    .store(org.lwjgl.opengl.GL11C.GL_RGBA8, 1, layout.width(), layout.height()) : null;
+            this.prelitResolve = this.prelitColor != null
+                    ? this.resources.own(new MetalPrelitResolve(backend), MetalPrelitResolve::close) : null;
             this.opaque = planes(backend, layout.opaqueMaterial());
             this.translucent = planes(backend, layout.material());
             this.packedDepth = layout.exportDepth() ? bridge(backend) : null;

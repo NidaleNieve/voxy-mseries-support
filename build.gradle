@@ -973,3 +973,14 @@ tasks.register('testIceSurfaceOwnership', JavaExec) {
 }
 
 tasks.named('verifyMetal') { dependsOn 'testIceSurfaceOwnership' }
+
+// Production geometry transport; does not launch Minecraft or open a visible window.
+tasks.register('testMetalMaterialInputs', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.interop.MetalMaterialInputsRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.named('verifyMetal') { dependsOn 'testMetalMaterialInputs' }

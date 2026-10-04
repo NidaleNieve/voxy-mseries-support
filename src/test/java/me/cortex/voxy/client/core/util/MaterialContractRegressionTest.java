@@ -84,6 +84,18 @@ public final class MaterialContractRegressionTest {
                 float[] pixel=new float[4];glReadPixels(0,0,1,1,GL_RGBA,GL_FLOAT,pixel);
                 if(Math.abs(pixel[0]-8f/256f)>0.0001f || Math.abs(pixel[1]-8f/256f)>0.0001f) throw new AssertionError("generic contract altered packed lighting: "+Arrays.toString(pixel));
                 System.out.println("PASS: real GL material resolve preserves zero block/sky light without brightness overrides");
+                // Independent nibble centers: exercise every input, not merely the darkest corner.
+                for(int block=0;block<16;block++)for(int sky=0;sky<16;sky++) {
+                    glActiveTexture(GL_TEXTURE2);glBindTexture(GL_TEXTURE_RECTANGLE,planes[2]);
+                    glTexSubImage2D(GL_TEXTURE_RECTANGLE,0,0,0,1,1,GL_RGBA,GL_FLOAT,
+                            new float[]{(block<<4)/255f,(sky<<4)/255f,0,0});
+                    glDrawArrays(GL_TRIANGLE_STRIP,0,4);glReadPixels(0,0,1,1,GL_RGBA,GL_FLOAT,pixel);
+                    float expectedBlock=(block*16+8)/256f,expectedSky=(sky*16+8)/256f;
+                    if(Math.abs(pixel[0]-expectedBlock)>.0001f || Math.abs(pixel[1]-expectedSky)>.0001f)
+                        throw new AssertionError("material light decode swapped or changed channels block="+block+" sky="+sky+" pixel="+Arrays.toString(pixel));
+                }
+                System.out.println("PASS: real GL resolve preserves all 256 block/sky light combinations at Minecraft texel centers");
+
                 var pipeline = mock(me.cortex.voxy.client.core.MetalVxRenderPipeline.class, CALLS_REAL_METHODS);
                 var policy = me.cortex.voxy.client.core.MetalVxRenderPipeline.class.getDeclaredField("policy");
                 policy.setAccessible(true);

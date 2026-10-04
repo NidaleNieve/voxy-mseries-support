@@ -234,3 +234,69 @@ it is included in `verifyMetal`. Validate the new candidate in the frozen ocean
 with shaders off, normal FOV and spyglass, and check water/glass, underwater
 views, moving boundaries and reloads. Section-level translucent ordering remains
 a LOD approximation; this is not an order-independent transparency renderer.
+
+## Follow-up: one shaders-off translucent blend
+
+Gameplay feedback confirmed that retaining nearest depth reduced the ice artifact
+but did not eliminate it. A stricter regression was written and run before this
+follow-up: ice over farther water must produce the same pixel whether the water
+is submitted before or after the ice. Against `ice-depth2`, all six shaders-off
+water-first cases failed this independent color expectation. Empty texels,
+opaque occluders, and contract controls passed. The earlier fixture checked
+water-first depth but did not require its color to equal the ice-only reference.
+
+The cause reproduced in the fixture is retained destination color: depth rejects
+farther surfaces submitted later, but cannot undo a farther surface that has
+already been alpha-blended. The shaders-off Metal path now captures the nearest
+translucent RGBA surface without blending, then blends that layer once over the
+opaque bridge. It shares the opaque depth attachment, so hidden translucent
+surfaces remain rejected. The layer is cleared on each frame, including zero-work
+or submerged frames. Generic Complementary, BSL and OpenGL rendering retain their
+existing paths. This remains the accepted nearest-surface LOD approximation;
+it does not reproduce every layer of Minecraft's translucent geometry.
+
+The extra texture stays entirely on Metal; it does not allocate another
+IOSurface or introduce a CPU readback or submission wait. It adds one RGBA8
+texture (four bytes per framebuffer pixel) and a fullscreen GPU blend. No
+performance improvement is claimed. Existing `ResourceScope` ownership handles
+constructor rollback, failed resize, replacement and shutdown. Failure-injection
+tests for shaders-off resources were established before changing acquisition.
+
+After the fix, all 72 numeric surface cases pass. Additional readbacks through
+an actual BGRA8 IOSurface verify channel order, row coordinates, transparent and
+opaque pixels, destination alpha, and changing dimensions. The shader-state
+fingerprint changed only for the reviewed shaders-off capture blend state.
+These tests use production fragment/state and resolve code, with controlled
+screen-space geometry; they do not establish gameplay appearance or cache-wide
+mesh correctness. The candidate still needs frozen-ocean validation with shaders
+off, both normal FOV and spyglass, and water/glass, underwater views, changing
+boundaries, resize and reload.
+
+## Lighting seam investigation
+
+`MetalMaterialInputsRegressionTest` uses the actual production vertex and
+fragment shaders, encoded cube quads and production index ordering. Numeric
+readbacks cover all six exterior normals, all 256 block/sky light combinations,
+and tinted/untinted faces: 3,072 material input pixels. The expected face IDs and
+original independent light nibbles survive intact. A separate actual GL resolve
+fixture verifies all 256 combinations decode to Minecraft lightmap texel centers.
+Neither test reproduced a channel swap, tint corruption or face-normal inversion.
+They do not compare lighting on real Sodium geometry, partial models or actual
+Minecraft biome providers.
+
+Inspection of Complementary Unbound r5.9.3 found explicit contract differences:
+its Voxy opaque shader uses reprojected screen-space shadow information instead
+of the regular terrain shadow-sampling path; the LOD mesh also does not provide
+Sodium's per-vertex ambient occlusion. The pack disables generated normals in its
+Voxy translucent path. These are possible contributors to the ice/snow seam,
+not a demonstrated explanation of the supplied screenshots. No brightness floor,
+hue multiplier, forced tint, enlarged coverage or distance blend is added here.
+The existing matched frame probe can report material face/light/tint, resolved
+color and final output at the same frame. Boundary samples with Complementary
+are needed before changing its accepted lighting path.
+
+Focused commands: `./gradlew testIceSurfaceOwnership testFrameTargets
+ testMetalMaterialInputs testMaterialContract testTerrainConfiguration`.
+The pack-dependent task requires `-PcomplementaryPack=<shaderpack.zip>`.
+All are also part of `verifyCpu verifyMetal`; these are command-only numeric
+checks using an invisible driver context, without launching Minecraft.

@@ -26,7 +26,7 @@ public final class IceSurfaceOwnershipRegressionTest {
                 uv=vec2(.5);voxyFogDist=300;
             }
             """;
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         net.minecraft.SharedConstants.tryDetectVersion();net.minecraft.server.Bootstrap.bootStrap();
         me.cortex.voxy.common.Logger.SHUTUP=true;
         int failures=0;
@@ -65,36 +65,84 @@ public final class IceSurfaceOwnershipRegressionTest {
                     var production=TerrainShaderConfiguration.load(policy,BackendType.METAL).translucent();
                     var descriptor=new GraphicsPipelineDesc(VERTEX,production.fragmentGlsl,production.defines,null,null,null,null,
                             production.colorAttachmentFormats,VertexLayout.EMPTY,production.state,"Ice surface ownership "+mode);
+                    MetalPrelitResolve resolve=mode==MetalMaterialPolicy.SHADERS_OFF?new MetalPrelitResolve(backend):null;
                     try(var pipeline=backend.createGraphicsPipeline(descriptor)) {
                         for(int face=0;face<6;face++) {
                             int expected=0;
-                            for(int sequence=0;sequence<4;sequence++) {
-                                var pass=RenderPassDesc.builder(SIZE,SIZE).clearColor(target,.1f,.1f,.1f,1).clearDepth(depth,.8f);
+                            for(int sequence=0;sequence<6;sequence++) {
+                                if(resolve!=null)try(var clear=backend.beginRenderPass(RenderPassDesc.builder(SIZE,SIZE).clearColor(second,.1f,.1f,.1f,1).build())) { }
+                                var pass=RenderPassDesc.builder(SIZE,SIZE)
+                                        .clearColor(target,resolve==null?.1f:0,resolve==null?.1f:0,resolve==null?.1f:0,resolve==null?1:0)
+                                        .clearDepth(depth,sequence==5?.2f:.8f);
                                 if(mode==MetalMaterialPolicy.CONTRACT)pass.clearColor(second,0,0,0,0).clearColor(third,0,0,0,0);
                                 try(var encoder=backend.beginRenderPass(pass.build())) {
                                     encoder.setPipeline(pipeline);encoder.setViewport(0,0,SIZE,SIZE,0,1);
                                     encoder.setBuffer(0,scene,0);encoder.setBuffer(9,bounds,0);encoder.setBuffer(11,tint,0);encoder.setBuffer(3,model,0);
                                     encoder.setSampler(0,sampler);
                                     if(sequence==2)draw(encoder,water,params,.6f,1,face);
-                                    draw(encoder,sequence==3?empty:ice,params,.3f,0,face);
-                                    if(sequence==1 || sequence==3)draw(encoder,water,params,.6f,1,face);
+                                    draw(encoder,sequence==3 || sequence==4?empty:ice,params,.3f,0,face);
+                                    if(sequence==1 || sequence==3 || sequence==5)draw(encoder,water,params,.6f,1,face);
                                 }
-                                backend.copyTextureToBuffer(depth,readDepth,SIZE,SIZE);backend.submit();target.getBytes(0,0,0,SIZE,SIZE,pixels);
+                                if(resolve!=null)resolve.render(second,target,SIZE,SIZE);
+                                backend.copyTextureToBuffer(depth,readDepth,SIZE,SIZE);backend.submit();
+                                (resolve==null?target:second).getBytes(0,0,0,SIZE,SIZE,pixels);
                                 int actual=MemoryUtil.memGetInt(pixels+(2*SIZE+2)*4);
                                 float actualDepth=MemoryUtil.memGetFloat(((MetalBuffer)readDepth).getContentsPtr()+(2*SIZE+2)*4);
-                                float expectedDepth=sequence==3?.6f:.3f;
+                                float expectedDepth=sequence==5?.2f:sequence==4?.8f:sequence==3?.6f:.3f;
                                 if(sequence==0)expected=actual;
-                                if((sequence==1 && actual!=expected) || Math.abs(actualDepth-expectedDepth)>.00001f) {
+                                if(((sequence==1 || sequence==2) && actual!=expected)
+                                        || ((sequence==4 || sequence==5) && actual!=0xff1a1a1a) || Math.abs(actualDepth-expectedDepth)>.00001f) {
                                     failures++;System.err.println("FAIL: "+mode+" face="+face+" sequence="+sequence+" pixel="+Integer.toHexString(actual)
                                             +" nearest-only="+Integer.toHexString(expected)+" depth="+actualDepth+" expectedDepth="+expectedDepth);
                                 } else System.out.println("PASS: "+mode+" face="+face+" sequence="+sequence+" nearest-depth="+actualDepth);
                             }
                         }
-                    }
+                    } finally {if(resolve!=null)resolve.close();}
                 }
             } finally {MemoryUtil.nmemFree(params);MemoryUtil.nmemFree(pixels);}
         }
+        bridgeResolve();
         if(failures!=0)throw new AssertionError(failures+" ice surface ownership failures");
+    }
+    private static void bridgeResolve() {
+        try(var context=new TestGlContext();var resources=new ResourceScope()) {
+            var backend=resources.own(new MetalRenderBackend(),MetalRenderBackend::shutdown);
+            var resolve=resources.own(new MetalPrelitResolve(backend),MetalPrelitResolve::close);
+            // Non-square gradients expose row, channel, alpha and resize mistakes across the real IOSurface.
+            for(int width:new int[]{8,4,16}) {
+                int height=4;
+                var layer=resources.own((MetalTexture)backend.createTexture(GL_TEXTURE_2D),MetalTexture::free);
+                layer.storeUploadable(GL_RGBA8,1,width,height);
+                var bridge=resources.own(IOSurfaceBridge.create(backend.device(),width,height,IOSurfaceBridge.IOSurfaceFormat.BGRA8),IOSurfaceBridge::close);
+                long data=MemoryUtil.nmemAllocChecked(width*height*4L);
+                try {
+                    for(int y=0;y<height;y++)for(int x=0;x<width;x++) {
+                        long pixel=data+4L*(y*width+x);
+                        MemoryUtil.memPutByte(pixel,(byte)(32+x*8));MemoryUtil.memPutByte(pixel+1,(byte)(48+y*32));
+                        MemoryUtil.memPutByte(pixel+2,(byte)160);MemoryUtil.memPutByte(pixel+3,(byte)(x%3==0?0:x%3==1?128:255));
+                    }
+                    layer.uploadSubImage2D(0,0,0,width,height,GL_RGBA,GL_UNSIGNED_BYTE,data);
+                    try(var clear=backend.beginRenderPass(RenderPassDesc.builder(width,height).clearColor(bridge.asGpuTexture(),.1f,.2f,.3f,1).build())) { }
+                    resolve.render(bridge.asGpuTexture(),layer,width,height);backend.submit();
+                    long surface=bridge.ioSurfaceHandle();
+                    if(MetalNative.iosurfaceLockReadOnly(surface)!=0)throw new AssertionError("bridge read lock failed");
+                    try {
+                        long base=MetalNative.iosurfaceGetBaseAddress(surface);int stride=MetalNative.iosurfaceGetBytesPerRow(surface);
+                        for(int y=0;y<height;y++)for(int x=0;x<width;x++) {
+                            long src=data+4L*(y*width+x),dest=base+(long)y*stride+x*4L;
+                            float alpha=(MemoryUtil.memGetByte(src+3)&255)/255f;
+                            for(int channel=0;channel<3;channel++) {
+                                int actual=MemoryUtil.memGetByte(dest+2-channel)&255;
+                                int expected=Math.round((MemoryUtil.memGetByte(src+channel)&255)*alpha+(channel+1)*25.5f*(1-alpha));
+                                if(Math.abs(actual-expected)>1)throw new AssertionError("BGRA bridge resolve pixel="+x+","+y+" channel="+channel+" actual="+actual+" expected="+expected);
+                            }
+                            if((MemoryUtil.memGetByte(dest+3)&255)!=255)throw new AssertionError("resolve changed opaque destination alpha");
+                        }
+                    } finally {MetalNative.iosurfaceUnlockReadOnly(surface);}
+                } finally {MemoryUtil.nmemFree(data);}
+            }
+            System.out.println("PASS: real BGRA IOSurface blend preserves RGB channels, row coordinates, empty pixels, destination alpha and changing dimensions");
+        }
     }
     private static MetalTexture texture(ResourceScope scope,MetalRenderBackend backend,int rgba) {
         var texture=scope.own((MetalTexture)backend.createTexture(GL_TEXTURE_2D),MetalTexture::free);

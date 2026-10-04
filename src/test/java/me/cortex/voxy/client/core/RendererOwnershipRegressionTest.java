@@ -47,7 +47,10 @@ public final class RendererOwnershipRegressionTest {
         var bridge = mock(IOSurfaceBridge.class);
         var texture = mock(IGpuTexture.class, RETURNS_SELF);
         var backend = mock(MetalRenderBackend.class);
-        when(backend.createTexture()).thenReturn(texture);
+        var prelit = mock(IGpuTexture.class, RETURNS_SELF);
+        var resolve = mock(IGpuPipeline.class);
+        when(backend.createTexture()).thenReturn(texture, prelit);
+        when(backend.createGraphicsPipeline(any())).thenReturn(resolve);
         var failure = new IllegalStateException("injected release failure");
         doThrow(failure).when(texture).free();
         try (var bridges = mockStatic(IOSurfaceBridge.class)) {
@@ -56,10 +59,10 @@ public final class RendererOwnershipRegressionTest {
             set(frame, "targets", targets);
             try { frame.close(); throw new AssertionError("cleanup failure hidden"); }
             catch (IllegalStateException expected) { require(expected == failure, "close lost first failure"); }
-            verify(bridge).close(); verify(texture).free();
-            clearInvocations(bridge, texture);
+            verify(bridge).close(); verify(texture).free(); verify(prelit).free(); verify(resolve).close();
+            clearInvocations(bridge, texture, prelit, resolve);
             frame.close();
-            verifyNoInteractions(bridge, texture);
+            verifyNoInteractions(bridge, texture, prelit, resolve);
         }
     }
     private static void construction() throws Exception {

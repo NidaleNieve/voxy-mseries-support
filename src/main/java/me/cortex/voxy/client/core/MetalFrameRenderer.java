@@ -193,10 +193,27 @@ final class MetalFrameRenderer implements AutoCloseable {
                 // pack's deferred composites LOD water as WATER instead of
                 // shading it as opaque land.
                 if (!this.pipeline.deferTranslucency && !vxMaterial
-                        && !vxContract) {
+                        && !vxContract && this.targets.prelitResolve == null) {
                     mdic.renderTranslucentMetal(enc, mv);
                 }
             }
+        }
+        if (this.targets.prelitResolve != null && !this.pipeline.deferTranslucency) {
+            var translucentPass = me.cortex.voxy.client.core.gpu.RenderPassDesc.builder(fbw, fbh)
+                    .clearColor(this.targets.prelitColor, 0, 0, 0, 0)
+                    .depthAttachment(this.targets.depth, 0,
+                            me.cortex.voxy.client.core.gpu.RenderPassDesc.LoadAction.LOAD,
+                            me.cortex.voxy.client.core.gpu.RenderPassDesc.StoreAction.STORE, 1).build();
+            try (var encoder = backend.beginRenderPass(translucentPass)) {
+                encoder.setViewport(0, 0, fbw, fbh, 0, 1);
+                if (!bridgeSolidTest && !submersionSkip
+                        && this.pipeline.sectionRenderer instanceof me.cortex.voxy.client.core.rendering.section.backend.mdic.MDICSectionRenderer mdic
+                        && viewport instanceof me.cortex.voxy.client.core.rendering.section.backend.mdic.MDICViewport mv) {
+                    mdic.renderTranslucentMetal(encoder, mv);
+                }
+            }
+            this.targets.prelitResolve.render(this.targets.color.asGpuTexture(),
+                    this.targets.prelitColor, fbw, fbh);
         }
         // Iris gbuffer injection: export the LOD pass's depth into the R32F
         // depth bridge so the GL-side injector can unproject it back into
