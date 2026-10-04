@@ -943,3 +943,12 @@ tasks.register('testVisibilityClock', JavaExec) {
     doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
 }
 tasks.named('verifyMetal') { dependsOn 'testVisibilityClock' }
+
+// Review reproduction: deliberately separate from the accepted aggregate verification tasks.
+tasks.register('testMetalBakeDepth', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.model.MetalBakeDepthRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+}
