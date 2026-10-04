@@ -76,12 +76,10 @@ public final class MetalBudgetBufferRenderer {
                 .attribute(1, VertexLayout.VertexFormat.FLOAT2, 4 * 4, 0)
                 .build();
 
-        // NO_CULL because we render every face from a single pipeline and
-        // rely on the per-face projection matrices to orient the geometry
-        // correctly — same simplification as MDIC's terrain pipeline on
-        // Metal (see MDICSectionRenderer constructor M12 chunk 6 polish).
+        // The existing projection increases Z toward the visible cube boundary.
+        // Keep two-sided vegetation, but select the nearest painted surface.
         PipelineState state = new PipelineState(
-                PipelineState.DepthState.DISABLED,
+                new PipelineState.DepthState(true, true, PipelineState.CompareOp.GREATER_EQUAL),
                 PipelineState.BlendState.OPAQUE,
                 PipelineState.RasterState.NO_CULL);
 
@@ -124,7 +122,7 @@ public final class MetalBudgetBufferRenderer {
      * via {@link MetalTexture#storeRenderTargetUploadable}) so the readback
      * after the final pass is a CPU memcpy.
      */
-    public void beginPass(IGpuTexture bakeTarget, IGpuTexture metadataTarget, int width, int height, boolean clear) {
+    public void beginPass(IGpuTexture bakeTarget, IGpuTexture metadataTarget, IGpuTexture depthTarget, int width, int height, boolean clear) {
         ensureInit();
         if (this.activeEncoder != null) {
             throw new IllegalStateException("MetalBudgetBufferRenderer: nested beginPass");
@@ -136,6 +134,7 @@ public final class MetalBudgetBufferRenderer {
         if (clear) {
             b.clearColor(bakeTarget, 0f, 0f, 0f, 0f);
             b.clearColor(metadataTarget, 0f, 0f, 0f, 0f);
+            b.clearDepth(depthTarget, 0f);
         } else {
             b.addColorAttachment(bakeTarget, 0,
                     RenderPassDesc.LoadAction.LOAD, RenderPassDesc.StoreAction.STORE,
@@ -143,6 +142,8 @@ public final class MetalBudgetBufferRenderer {
             b.addColorAttachment(metadataTarget, 0, RenderPassDesc.LoadAction.LOAD,
                     RenderPassDesc.StoreAction.STORE, 0f, 0f, 0f, 0f);
         }
+        if (!clear) b.depthAttachment(depthTarget, 0, RenderPassDesc.LoadAction.LOAD,
+                RenderPassDesc.StoreAction.STORE, 0f);
         this.activeEncoder = this.backend.beginRenderPass(b.build());
         this.activeEncoder.setPipeline(this.pipeline);
         this.activeEncoder.setViewport(0, 0, width, height, 0, 1);

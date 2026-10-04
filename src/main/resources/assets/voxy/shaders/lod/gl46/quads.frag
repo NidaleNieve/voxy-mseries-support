@@ -571,10 +571,10 @@ void main() {
     // bridge clear. Darken it and floor its opacity so the boundary reads as
     // continuous deep water. VOXY_WATER_SHADE / VOXY_WATER_MIN_ALPHA envs.
     #ifdef VOXY_WATER_SHADE
-    outColour.rgb *= VOXY_WATER_SHADE;
+    if ((interData.w & (1u<<19)) != 0u) outColour.rgb *= VOXY_WATER_SHADE;
     #endif
     #ifdef VOXY_WATER_MIN_ALPHA
-    outColour.a = max(outColour.a, VOXY_WATER_MIN_ALPHA);
+    if ((interData.w & (1u<<19)) != 0u) outColour.a = max(outColour.a, VOXY_WATER_MIN_ALPHA);
     #endif
 
     // Far-water opacity ramp (Metal, translucent only, 2026-07-03). MC water
@@ -588,7 +588,7 @@ void main() {
     // end. w == 0 disables (VOXY_WATER_FAR_ALPHA=0 kill switch, params from
     // MDICSectionRenderer.uploadUniform).
     #if defined(TRANSLUCENT) && defined(VOXY_WATER_FAR_ALPHA)
-    if (voxyLodParams.w > 0.0) {
+    if (voxyLodParams.w > 0.0 && (interData.w & (1u<<19)) != 0u) {
         float farLerp = clamp((voxyFogDist - voxyLodParams.y) * voxyLodParams.z, 0.0, 1.0);
         farLerp = farLerp * farLerp * (3.0 - 2.0 * farLerp);
         outColour.a = mix(outColour.a, max(outColour.a, voxyLodParams.w), farLerp);

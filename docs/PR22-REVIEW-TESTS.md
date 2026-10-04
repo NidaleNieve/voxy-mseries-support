@@ -14,8 +14,9 @@ and exact teleport sequence are not established by those images.
 
 This investigation used commands and numeric CPU/GL/Metal assertions. Minecraft
 was not launched and the seed was not generated. The command-based tests do not reproduce the exact gameplay
-sequence; subsequent user testing reproduces the visible ice artifact. No production fix, deployment, or PR update
-is included here.
+sequence; subsequent user testing reproduces the visible ice artifact. The follow-up
+repair below addresses controlled failures; gameplay acceptance remains pending.
+No PR update is included.
 
 ## Revision comparison
 
@@ -92,9 +93,8 @@ JAVA_TOOL_OPTIONS=-Dvoxy.bslCompatibility=true \
 ./gradlew --offline testMetalBakeDepth --console=plain
 ```
 
-The last command deliberately fails until production bake depth and visibility
-are corrected. It is separate from aggregate tasks to preserve the distinction
-between existing checks and newly exposed failures. Test code stays in the test
+The last command failed against the preceding implementation. It now passes
+and is included in `verifyMetal`, together with `testIceOpacity`. Test code stays in the test
 source set. Existing native and full-pack checks can be run with:
 
 ```sh
@@ -152,5 +152,48 @@ already-proven opaque bakery plane tests as sufficient translucent acceptance.
 6. Run representative reload/join/teleport memory and thread measurements before
    claiming long-running resource correctness.
 
-No render-distance changes, arbitrary waits, forced colors, cache deletion,
-or speculative production modifications were made during this investigation.
+No render-distance changes, arbitrary waits, forced colors, or cache deletion
+are part of this repair.
+
+
+## Ice bakery repair candidate
+
+The added regressions were run against the preceding production implementation
+before making the repair. The original partial-height and opaque visibility
+checks failed as described above. Additional ice-like planes reproduced a
+front-surface alpha/color failure: a later back surface replaced `0x80ffffff`
+with `0x40202020`. A numeric Metal fixture of the production far-water block
+also raised non-fluid alpha from 0.5 to 0.95; the fluid control correctly
+received the existing water ramp. Expanded six-face depth fixtures failed
+against the preceding implementation before the repair was reapplied.
+
+The repair:
+
+- Adds a depth attachment to the Metal bakery and selects the nearest painted
+  surface. Culling remains disabled for the existing two-sided vegetation
+  approximation. Translucent albedo and alpha are captured from that surface,
+  without blending its opposite surface into the atlas.
+- Encodes actual face depth in the existing 24-bit-depth/8-bit-flags word.
+  Coverage and tint remain independent of color alpha, and empty faces remain
+  zero. The Metal compressed projection is converted to the legacy depth
+  convention before classification.
+- Removes the synthetic fluid-height workaround because the bakery now
+  captures real fluid geometry depth.
+- Adds an unused runtime model flag and varying bit for fluid identity, so
+  water-only opacity/shading controls no longer affect ice or glass. Saved
+  section and geometry formats are unchanged; no cache rebuild is requested.
+
+Validation includes all six production face matrices at depths 1/8, 1/2,
+8/9 and 1, empty faces, overlapping opaque and ice-like planes in both
+submission orders, existing plant/tint/four-mip checks, and the production
+attribute producer feeding the far-opacity block. The deliberately changed
+terrain shader source fingerprint was reviewed and updated; target, blend,
+raster and camera policies are unchanged.
+
+The full CPU and numeric GL/Metal suites include actual Complementary Unbound
+r5.9.3 programs, storage/database reopening, traversal camera jumps, water
+depth ownership, GL-state restoration, and resource ownership tests. They do
+not prove that the user's frozen-ocean scene is repaired. Recheck that scene
+with shaders off and with Complementary, ordinary FOV and spyglass, then
+travel away and return/teleport after generating LODs. Keep the preview label
+until these gameplay checks pass. No performance improvement is claimed.

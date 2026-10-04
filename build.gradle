@@ -944,7 +944,7 @@ tasks.register('testVisibilityClock', JavaExec) {
 }
 tasks.named('verifyMetal') { dependsOn 'testVisibilityClock' }
 
-// Review reproduction: deliberately separate from the accepted aggregate verification tasks.
+// Numeric bakery depth and non-fluid opacity regressions.
 tasks.register('testMetalBakeDepth', JavaExec) {
     group = 'verification'
     dependsOn testClasses
@@ -952,3 +952,13 @@ tasks.register('testMetalBakeDepth', JavaExec) {
     mainClass = 'me.cortex.voxy.client.core.model.MetalBakeDepthRegressionTest'
     jvmArgs '-XstartOnFirstThread'
 }
+
+tasks.register('testIceOpacity', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.interop.IceOpacityRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+}
+
+tasks.named('verifyMetal') { dependsOn 'testMetalBakeDepth', 'testIceOpacity' }
