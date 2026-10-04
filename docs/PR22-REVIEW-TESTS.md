@@ -300,3 +300,30 @@ Focused commands: `./gradlew testIceSurfaceOwnership testFrameTargets
 The pack-dependent task requires `-PcomplementaryPack=<shaderpack.zip>`.
 All are also part of `verifyCpu verifyMetal`; these are command-only numeric
 checks using an invisible driver context, without launching Minecraft.
+
+## Follow-up: shaders-off lightmap parity
+
+A further test was added and run against `ice-layer3` before changing its
+brightness policy. The actual production vertex/fragment pipeline renders six
+unoccluded cube faces with known white, intermediate, dim and black lightmaps,
+using Minecraft's directional shade values. The expected RGB is independently
+computed from lightmap color and face shade, with only the existing RGBA8
+quantization tolerance. The test found 53 channel mismatches: the historical
+0.92 multiplier dimmed even uniformly lit, unoccluded faces. All 3,072 material
+contract input checks continued to pass.
+
+The automatic shaders-off opaque darkening is removed. Default and invalid
+`VOXY_LOD_BRIGHTNESS` values now preserve the original lightmap; the existing
+explicit diagnostic override remains available. The shader's obsolete claim
+that blanket darkening reproduces local ambient occlusion was removed. No new
+brightness or hue compensation is introduced. Directional shade, lightmap
+sampling, fog, pack lighting and the nearest-surface resolve stay intact.
+
+After correction, the 24 flat-face lightmap fixtures pass, including dim and
+black inputs. The source/configuration fingerprint is updated for this reviewed
+change. This targets a proven shaders-off boundary mismatch; it does not claim
+that near terrain and LOD geometry have identical local ambient occlusion,
+shadows, reflections or detail, nor that it fixes the remaining Complementary
+lighting seam. Compare the ice/snow boundary in both modes before acceptance.
+The next candidate includes the prior ice-layer repair and these lighting
+changes, under a distinct `ice-light4` build label.

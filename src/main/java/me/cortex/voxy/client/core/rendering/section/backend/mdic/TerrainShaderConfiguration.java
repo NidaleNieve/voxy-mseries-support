@@ -157,13 +157,13 @@ public record TerrainShaderConfiguration(GraphicsPipelineDesc opaque, GraphicsPi
             }
             boolean vxContract = me.cortex.voxy.client.core.util.IrisUtil.vxContractActive();
             if (!vxContract) {
-                float brightness = 0.92f;
+                float brightness = 1.0f;
                 String b = System.getenv("VOXY_LOD_BRIGHTNESS");
                 if (b != null && !b.isBlank()) {
                     try {
                         brightness = Float.parseFloat(b.trim());
                     } catch (NumberFormatException e) {
-                        brightness = 0.92f;
+                        brightness = 1.0f;
                     }
                 }
                 if (brightness != 1.0f) {

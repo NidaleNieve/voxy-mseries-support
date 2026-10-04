@@ -547,20 +547,8 @@ void main() {
     }
 #endif
 
-    // M13 chunk 5: environmental fog on the Metal terrain path. Mirrors the
-    // GL post-pass formula from blit_texture_depth_cutout.frag (lines 71–74)
-    // so distant LOD chunks fade into the sky/biome fog colour the same way
-    // Sodium's near terrain does. Injected only on the Metal pipeline (see
-    // MDICSectionRenderer constructor) — the GL pipeline still applies fog
-    // in the depth-cutout post-pass and would double-apply if this branch
-    // also ran. fogColour.a == 0 short-circuits so a feature-flagged-off
-    // upload (zero alpha) is cheap.
-    // Seam-ring brightness parity (Metal): GL runs ssao.comp between opaque
-    // and translucent, approximating the vertex AO Sodium bakes into its near
-    // terrain; that pass is parked on Metal, leaving LOD ~10% brighter than
-    // the AO-darkened Sodium terrain at the render-distance boundary. Applied
-    // BEFORE fog so the compensation darkens terrain, not the fog colour.
-    // Injected Metal-only with the tunable value (VOXY_LOD_BRIGHTNESS env).
+    // Explicit diagnostic override only. Normal rendering preserves the lightmap
+    // and directional shade; uniform darkening cannot approximate local ambient occlusion.
     #ifdef VOXY_LOD_BRIGHTNESS
     outColour.rgb *= VOXY_LOD_BRIGHTNESS;
     #endif
