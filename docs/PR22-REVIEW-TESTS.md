@@ -13,8 +13,8 @@ ice, and spyglass magnification. Their displayed seed is
 and exact teleport sequence are not established by those images.
 
 This investigation used commands and numeric CPU/GL/Metal assertions. Minecraft
-was not launched and the seed was not generated. The screenshot's exact gameplay
-artifact has not been reproduced. No production fix, deployment, or PR update
+was not launched and the seed was not generated. The command-based tests do not reproduce the exact gameplay
+sequence; subsequent user testing reproduces the visible ice artifact. No production fix, deployment, or PR update
 is included here.
 
 ## Revision comparison
@@ -101,6 +101,36 @@ source set. Existing native and full-pack checks can be run with:
 ./gradlew --offline verifyCpu verifyMetal \
   -PcomplementaryPack=/path/to/ComplementaryUnbound_r5.9.3.zip --continue --console=plain
 ```
+
+## Follow-up gameplay evidence
+
+The tester reproduced the visible ice artifact in the duplicated instance with
+`architecture-fixes-20261001-candidate2`. The supplied probe contains 51 matched
+samples from 15:28:03 through 15:28:29, ending by an explicit stop command.
+
+- Main-view and viewport frame IDs agree in all samples; coverage generation
+  remains 6.
+- Selected LOD lists are nonempty in all samples. Translucent draw-command counts
+  range from 224 to 1,986. This does not prove that every affected ice face exists.
+- The center coverage-bound value is zero in 41 of 51 samples. The boundary mask
+  alone therefore cannot account for all of the observed scene; this is not a
+  per-pixel identification of ice.
+- The same center RGB survives the reported Sodium stages through world output.
+  There are no material-program stages or per-ice alpha/ID readbacks in this
+  capture. Final opaque framebuffer alpha and main-target depth of 1 are not
+  independently evidence of incorrect ice alpha or missing LOD geometry.
+
+The screenshot shows the irregular ice surface being investigated. Runtime
+confirmation narrows the target, but does not establish a unique cause.
+
+An additional source-level suspect is the shaders-off `VOXY_WATER_FAR_ALPHA`
+branch in `quads.frag`: it applies to every translucent fragment without checking
+whether the model is fluid. The draw pipeline includes ice as translucent terrain,
+so a water-specific opacity policy can also alter ice. Its contribution to this
+artifact requires controlled pixel tests, including ice/glass versus water at the
+same distances. Translucent bake layering, front/back visibility, premultiplied
+blending, and draw ordering also need explicit ice fixtures. Do not treat the
+already-proven opaque bakery plane tests as sufficient translucent acceptance.
 
 ## Next correction and acceptance
 
