@@ -962,3 +962,14 @@ tasks.register('testIceOpacity', JavaExec) {
 }
 
 tasks.named('verifyMetal') { dependsOn 'testMetalBakeDepth', 'testIceOpacity' }
+
+tasks.register('testIceSurfaceOwnership', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.interop.IceSurfaceOwnershipRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+
+tasks.named('verifyMetal') { dependsOn 'testIceSurfaceOwnership' }

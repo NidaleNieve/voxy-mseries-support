@@ -566,8 +566,8 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
 
     /**
      * M12 Metal-side translucent render — uses the dedicated translucent
-     * pipeline ({@code TRANSLUCENT_MESH}-style state with depth-test-no-write
-     * + premultiplied-alpha blend, both baked in at pipeline creation) and
+     * pipeline (Metal surface depth-test-and-write state
+     * + mode-specific blending, both baked in at pipeline creation) and
      * draws from the translucent slice of {@code drawCallBuffer}
      * ({@code TRANSLUCENT_OFFSET}+ slots, populated by buildtranslucents.comp).
      * Same SSBO bindings as opaque since both share quads3.vert + quads.frag;

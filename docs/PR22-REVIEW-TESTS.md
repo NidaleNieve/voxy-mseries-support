@@ -197,3 +197,40 @@ not prove that the user's frozen-ocean scene is repaired. Recheck that scene
 with shaders off and with Complementary, ordinary FOV and spyglass, then
 travel away and return/teleport after generating LODs. Keep the preview label
 until these gameplay checks pass. No performance improvement is claimed.
+
+
+## Shaders-off surface ownership follow-up
+
+Gameplay feedback for `ice-bakery1` reports unchanged ice artifacts with shaders
+off, and correct ice with Complementary. The runtime log confirms that candidate
+was loaded, so this is not an old-JAR comparison. The first repair did not
+establish shaders-off gameplay acceptance.
+
+A new numeric fixture, `IceSurfaceOwnershipRegressionTest`, executes the actual
+production translucent fragment and its production state for shaders-off and
+contract modes. It supplies controlled surface depths, transparent and ice-like
+albedo, fully lit inputs, zero Sodium coverage, and a water-opacity ramp. The
+vertex fixture supplies known screen positions; it does not generate Minecraft
+ice meshes or recreate the complete scene. Six face IDs and four sequences
+exercise ice alone, farther water submitted after ice, water before ice, and
+transparent pixels followed by water. Frame attachments are cleared each time.
+
+Before correction, the 24 shaders-off cases failed surface-depth ownership;
+the six farther-water-after-ice cases also replaced the visible ice color. All
+24 contract controls passed. Shaders-off disabled translucent depth writes,
+allowing later farther surfaces inside a section to blend over nearer ice.
+Contract rendering already wrote depth and rejected those surfaces.
+
+The follow-up changes the Metal translucent pipeline to retain nearest surface
+depth in shaders-off mode. Existing blending and section command ordering are
+retained. The contract, opaque, OpenGL, camera, bakery, coverage, and lighting
+policies are unchanged. Alpha-zero texels still discard before writing depth.
+The shader-configuration fingerprint was updated only for this reviewed state
+change; it is not a replacement for numeric pixel checks.
+
+After correction, all 48 fixture cases pass. Existing plant/tint and water-depth
+checks also pass. Run `./gradlew testIceSurfaceOwnership` for the focused check;
+it is included in `verifyMetal`. Validate the new candidate in the frozen ocean
+with shaders off, normal FOV and spyglass, and check water/glass, underwater
+views, moving boundaries and reloads. Section-level translucent ordering remains
+a LOD approximation; this is not an order-independent transparency renderer.

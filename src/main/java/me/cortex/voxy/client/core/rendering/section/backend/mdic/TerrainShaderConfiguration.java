@@ -248,9 +248,9 @@ public record TerrainShaderConfiguration(GraphicsPipelineDesc opaque, GraphicsPi
                     PipelineState.BlendState.OPAQUE,
                     PipelineState.RasterState.NO_CULL);
             boolean waterDebugDepth = "1".equals(System.getenv("VOXY_LOD_WATER_DEBUG"));
-            var transDepthState = (pipeline.vxMaterialMode() || me.cortex.voxy.client.core.util.IrisUtil.vxContractActive())
-                    ? PipelineState.DepthState.DEFAULT
-                    : PipelineState.DepthState.TEST_NO_WRITE;
+            // The nearest translucent surface owns this bridge pixel. Without depth writes,
+            // later water/back faces inside a section can blend over nearer ice.
+            var transDepthState = PipelineState.DepthState.DEFAULT;
             var transBlend = vxMaterial && !"1".equals(System.getenv("VOXY_VX_PLANE_BLEND"))
                     ? PipelineState.BlendState.OPAQUE
                     : PipelineState.BlendState.PREMULTIPLIED_ALPHA;

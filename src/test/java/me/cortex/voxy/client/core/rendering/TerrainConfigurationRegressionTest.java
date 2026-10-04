@@ -14,7 +14,7 @@ import static org.mockito.Mockito.*;
 
 /** Characterizes descriptors created by production MDIC, including modes, TAA and driver state. */
 public final class TerrainConfigurationRegressionTest {
-    private static final String EXPECTED = "b30e38f79ccb836cc34afd84ba570a2acf2d0946808abe7080fe349c956affd1";
+    private static final String EXPECTED = "7d3248c0305fca616ef7721d67051f9276b57333493cd3ee85b575cd51a1f68f";
     private static String fields(Object value) throws Exception {
         var result = new StringBuilder();
         var fields = value.getClass().getFields();
