@@ -146,6 +146,48 @@ public final class MetalMaterialInputsRegressionTest {
                         }
                     }
                 }
+                // Sodium's compressed light coordinates are (n*16+8)/256. A real 16x16
+                // gradient catches interpolation errors hidden by the constant-color fixtures.
+                var gradient=resources.own((MetalTexture)backend.createTexture(GL_TEXTURE_2D),MetalTexture::free);
+                gradient.storeUploadable(GL_RGBA8,1,16,16);
+                var linear=resources.own(backend.createSampler(SamplerDesc.builder()
+                        .filter(SamplerDesc.Filter.LINEAR,SamplerDesc.Filter.LINEAR).build()),IGpuSampler::close);
+                long grid=MemoryUtil.nmemAllocChecked(16*16*4);
+                try {
+                    for(int sky=0;sky<16;sky++)for(int block=0;block<16;block++)
+                        MemoryUtil.memPutInt(grid+4L*(sky*16+block),0xff000000|(sky*17<<8)|(block*17));
+                    gradient.uploadSubImage2D(0,0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,grid);
+                } finally {MemoryUtil.nmemFree(grid);}
+                var eye=new Vector3f(.5f,2,.5f);
+                NativeUniformWriter.putMatrix4f(scene.getContentsPtr(),new Matrix4f().ortho(-.75f,.75f,-.75f,.75f,.1f,10f,true)
+                        .lookAt(eye,new Vector3f(.5f),new Vector3f(0,0,-1)));
+                NativeUniformWriter.putVector3f(scene.getContentsPtr()+80,eye);
+                int coordinateErrors=0;
+                for(int light=0;light<256;light++) {
+                    MemoryUtil.memPutLong(quad.getContentsPtr(),1|(long)light<<55);
+                    try(var encoder=backend.beginRenderPass(RenderPassDesc.builder(SIZE,SIZE)
+                            .clearColor(albedo,0,0,0,0).clearDepth(depth,1).build())) {
+                        encoder.setPipeline(pipeline);encoder.setViewport(0,0,SIZE,SIZE,0,1);
+                        encoder.setBuffer(0,scene,0);encoder.setBuffer(1,quad,0);encoder.setBuffer(3,model,0);
+                        encoder.setBuffer(4,color,0);encoder.setBuffer(5,position,0);encoder.setBuffer(6,perDraw,0);
+                        encoder.setBuffer(9,bounds,0);encoder.setBuffer(11,tint,0);
+                        encoder.setTexture(0,atlas);encoder.setSampler(0,sampler);
+                        encoder.setTexture(1,gradient);encoder.setSampler(1,linear);
+                        encoder.bindIndexBuffer(indices,0,RenderEncoder.INDEX_TYPE_UINT16);
+                        encoder.drawIndexed(RenderEncoder.PRIMITIVE_TRIANGLES,6,1,0,0,0);
+                    }
+                    backend.copyTextureToBuffer(albedo,albedoRead,SIZE,SIZE);backend.submit();
+                    long result=albedoRead.getContentsPtr()+(3*SIZE+4)*4;
+                    for(int channel=0;channel<2;channel++) {
+                        int expected=(channel==0?light>>4:light&15)*17;
+                        int actual=MemoryUtil.memGetByte(result+channel)&255;
+                        if(Math.abs(actual-expected)>1) {
+                            coordinateErrors++;if(coordinateErrors<5)System.err.println("FAIL: lightmap texel light="+light+" channel="+channel+" actual="+actual+" expected="+expected);
+                        }
+                    }
+                }
+                if(coordinateErrors>0)throw new AssertionError(coordinateErrors+" lightmap texel-center mismatches");
+                System.out.println("PASS: every block/sky light pair samples the same 16x16 texel center as Sodium");
             } finally {MemoryUtil.nmemFree(texel);}
             if(errors>0)throw new AssertionError(errors+" shaders-off lightmap/directional shade mismatches");
             System.out.println("PASS: 24 shaders-off flat-face fixtures preserve day/night lightmap colors and vanilla directional shade without global darkening");

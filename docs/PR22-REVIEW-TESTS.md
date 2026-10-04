@@ -327,3 +327,65 @@ shadows, reflections or detail, nor that it fixes the remaining Complementary
 lighting seam. Compare the ice/snow boundary in both modes before acceptance.
 The next candidate includes the prior ice-layer repair and these lighting
 changes, under a distinct `ice-light4` build label.
+
+## Ice background and intermediate-light parity (`ice-transition5`)
+
+The next transition probe was recorded with shaders off. Its early samples show
+only Voxy's composited ice; the later samples show Sodium's translucent ice
+blending over the underlying bridge. The screenshot was taken with Complementary
+enabled earlier in the session. These are separate observations, and neither
+alone establishes the cause of the pack's visible seam.
+
+Two command-based regressions identified concrete shaders-off defects:
+
+- The nearest-only repair loses water beneath ice. A new independent ordered
+  alpha-blend fixture failed with **84 channel mismatches** against `ice-light4`.
+  Ice is not opaque: the vanilla texture has alpha 190/255 throughout. Ignoring
+  the water underneath changes its final appearance even when its own texture
+  and lighting are correct.
+- Lightmap coordinates used `n/15` with endpoint clamping instead of Sodium's
+  compressed-vertex `(n*16+8)/256` centers. A real, linearly sampled 16x16 gradient
+  failed with **352 channel mismatches** before the correction. Constant-color
+  fixtures could not expose this. The installed Sodium vertex encoder and its
+  vertex shader confirm the expected coordinates. This correction does not
+  affect fully lit endpoints, and is not evidence that it caused every seam.
+
+Shaders-off Metal now captures the nearest non-fluid and fluid surface separately,
+with each depth-tested against the same opaque scene. Their per-pixel depths
+select back-to-front blending over the opaque bridge. Each category contributes
+once, regardless of draw submission order; farther ice back faces cannot
+accumulate into another opacity layer. The implementation keeps one nearest
+surface per category, not arbitrary multi-layer transparency. Complementary's
+material rendering, its lighting, and its resolve schedule are unchanged.
+
+The new `testIceBackground` passes **120** real Metal pixel fixtures across all
+six face IDs, both depth orders and submission orders, absent layers, nearer
+opaque occlusion, farther back faces, and changing draw counts. A follow-up depth
+assertion caught 96 unpublished nearest-depth cases before the resolve was
+changed to publish the visible layer's depth; empty layers preserve opaque depth.
+All 256 block/sky
+pairs now pass the lightmap gradient fixture. Existing ice surface, actual cube
+material-input, IOSurface channel/alpha, GL-state, actual Complementary-program,
+reload/resize and resource failure checks also pass. The existing target fault
+injection automatically exercises all **12** shaders-off acquisitions and **13**
+contract acquisitions. No game or visible computer-use test was run.
+
+The layer resources belong to `MetalPrelitLayers` and roll back as a complete
+set. The normal path adds a GPU depth copy, two depth seeding passes, and a second
+translucent draw slice; it adds no CPU readback or synchronization wait. Its extra
+full-size textures and buffer have a memory/submission cost. No performance
+improvement or gameplay acceptance is claimed.
+
+An active `/voxy debug probe view` also reports `[Metal-Prelit-Probe]` for the
+matched frame, before composition: opaque background RGB, each layer's RGBA and
+depth. It uses the existing twice-per-second, 60-second stage gate; readback
+buffers are lazy, replaced transactionally on resize, and freed with the
+renderer. Outside selected probe frames there are no diagnostic copies or waits.
+The terrain source fingerprint was updated for the reviewed layer capture guard
+and Metal-only lightmap coordinates; OpenGL sampling and pack material light
+nibbles are preserved.
+
+This candidate requires a repeated ice boundary check with shaders off. A
+remaining Complementary seam needs a separate shaders-enabled matched probe;
+the shaders-off log cannot identify a difference in pack reflections or shadows.
+No saved caches or world formats are changed.

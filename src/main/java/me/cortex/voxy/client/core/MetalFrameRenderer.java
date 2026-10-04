@@ -27,7 +27,8 @@ final class MetalFrameRenderer implements AutoCloseable {
     private MetalFrameTargets targets;
     private void ensureTargets(me.cortex.voxy.client.core.metal.MetalRenderBackend backend, MetalFrameTargets.Layout layout) {
         if (this.targets != null && this.targets.layout.equals(layout)) return;
-        var next = new MetalFrameTargets(backend, layout);
+        var next = new MetalFrameTargets(backend, layout, !layout.exportDepth()
+                ? me.cortex.voxy.client.core.rendering.section.backend.mdic.TerrainShaderConfiguration.load(this.pipeline, me.cortex.voxy.client.core.gpu.BackendType.METAL) : null);
         var retired = this.targets;
         this.targets = next;
         if (retired != null) retired.close();
@@ -193,27 +194,20 @@ final class MetalFrameRenderer implements AutoCloseable {
                 // pack's deferred composites LOD water as WATER instead of
                 // shading it as opaque land.
                 if (!this.pipeline.deferTranslucency && !vxMaterial
-                        && !vxContract && this.targets.prelitResolve == null) {
+                        && !vxContract && this.targets.prelit == null) {
                     mdic.renderTranslucentMetal(enc, mv);
                 }
             }
         }
-        if (this.targets.prelitResolve != null && !this.pipeline.deferTranslucency) {
-            var translucentPass = me.cortex.voxy.client.core.gpu.RenderPassDesc.builder(fbw, fbh)
-                    .clearColor(this.targets.prelitColor, 0, 0, 0, 0)
-                    .depthAttachment(this.targets.depth, 0,
-                            me.cortex.voxy.client.core.gpu.RenderPassDesc.LoadAction.LOAD,
-                            me.cortex.voxy.client.core.gpu.RenderPassDesc.StoreAction.STORE, 1).build();
-            try (var encoder = backend.beginRenderPass(translucentPass)) {
-                encoder.setViewport(0, 0, fbw, fbh, 0, 1);
-                if (!bridgeSolidTest && !submersionSkip
+        if (this.targets.prelit != null && !this.pipeline.deferTranslucency) {
+            final boolean drawTerrain = !bridgeSolidTest && !submersionSkip;
+            this.targets.prelit.render(this.targets.color.asGpuTexture(), this.targets.depth, (encoder, layer) -> {
+                if (drawTerrain
                         && this.pipeline.sectionRenderer instanceof me.cortex.voxy.client.core.rendering.section.backend.mdic.MDICSectionRenderer mdic
                         && viewport instanceof me.cortex.voxy.client.core.rendering.section.backend.mdic.MDICViewport mv) {
-                    mdic.renderTranslucentMetal(encoder, mv);
+                    mdic.renderTranslucentMetal(encoder, mv, layer);
                 }
-            }
-            this.targets.prelitResolve.render(this.targets.color.asGpuTexture(),
-                    this.targets.prelitColor, fbw, fbh);
+            }, inputs -> this.diagnostics.samplePrelit(mrb, viewport, inputs));
         }
         // Iris gbuffer injection: export the LOD pass's depth into the R32F
         // depth bridge so the GL-side injector can unproject it back into

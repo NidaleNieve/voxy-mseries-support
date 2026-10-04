@@ -984,3 +984,13 @@ tasks.register('testMetalMaterialInputs', JavaExec) {
     doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
 }
 tasks.named('verifyMetal') { dependsOn 'testMetalMaterialInputs' }
+
+tasks.register('testIceBackground', JavaExec) {
+    group = 'verification'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'me.cortex.voxy.client.core.interop.IceBackgroundRegressionTest'
+    jvmArgs '-XstartOnFirstThread'
+    doFirst { jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile}" }
+}
+tasks.named('verifyMetal') { dependsOn 'testIceBackground' }

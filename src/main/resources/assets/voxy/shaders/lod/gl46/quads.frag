@@ -40,6 +40,9 @@ layout(binding = 9, std430) readonly restrict buffer BoundDepthBuffer {
 //TODO: need to fix when merged quads have discardAlpha set to false but they span multiple tiles
 // however they are not a full block
 
+#ifdef VOXY_PRELIT_LAYER
+layout(location = 1) out float prelitSurfaceDepth;
+#endif
 layout(location = 0) in flat uvec4 interData;
 #ifndef USE_NV_BARRY
 layout(location = 1) in vec2 uv;
@@ -161,6 +164,12 @@ vec4 computeColour(vec2 texturePos, vec4 colour) {
 
 
 void main() {
+#ifdef VOXY_PRELIT_LAYER
+    bool isFluid = (interData.w & (1u << 19)) != 0u;
+    if (isFluid != (VOXY_PRELIT_LAYER != 0)) discard;
+    prelitSurfaceDepth = gl_FragCoord.z;
+#endif
+
 #if defined(VOXY_BOUND_DEBUG) && defined(PATCHED_SHADER)
     // See the bound-mask block below: PATCHED variants paint the debug red
     // at the emit site via this flag (no outColour exists to write here).

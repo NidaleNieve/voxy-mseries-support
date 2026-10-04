@@ -9,6 +9,18 @@ import static org.lwjgl.opengl.GL11C.GL_RGBA8;
 /** Canonical unpatched terrain descriptors, shared by production and driver verification. */
 public record TerrainShaderConfiguration(GraphicsPipelineDesc opaque, GraphicsPipelineDesc translucent) {
 
+    /** Shaders-off captures one nearest surface in each translucent category. */
+    public GraphicsPipelineDesc prelitLayer(boolean fluid) {
+        if (translucent.defines.containsKey("PATCHED_SHADER")) {
+            throw new IllegalStateException("Prelit layers require the shaders-off terrain descriptor");
+        }
+        var defines = new java.util.LinkedHashMap<>(translucent.defines);
+        defines.put("VOXY_PRELIT_LAYER", fluid ? "1" : "0");
+        return new GraphicsPipelineDesc(translucent.vertexGlsl, translucent.fragmentGlsl, defines,
+                null, null, null, null, new int[]{GL_RGBA8, org.lwjgl.opengl.GL30C.GL_R32F},
+                translucent.vertexLayout, translucent.state, "MetalPrelitLayer." + (fluid ? "fluid" : "surface"));
+    }
+
     static final float WATER_FAR_ALPHA = parseEnvFloat("VOXY_WATER_FAR_ALPHA", 0.95f);
     static final float WATER_FAR_ALPHA_START = parseEnvFloat("VOXY_WATER_FAR_ALPHA_START", 0.0f);
     static final float WATER_FAR_ALPHA_END = parseEnvFloat("VOXY_WATER_FAR_ALPHA_END", 0.0f);

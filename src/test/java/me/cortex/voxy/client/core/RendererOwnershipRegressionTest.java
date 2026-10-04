@@ -47,22 +47,32 @@ public final class RendererOwnershipRegressionTest {
         var bridge = mock(IOSurfaceBridge.class);
         var texture = mock(IGpuTexture.class, RETURNS_SELF);
         var backend = mock(MetalRenderBackend.class);
-        var prelit = mock(IGpuTexture.class, RETURNS_SELF);
-        var resolve = mock(IGpuPipeline.class);
-        when(backend.createTexture()).thenReturn(texture, prelit);
-        when(backend.createGraphicsPipeline(any())).thenReturn(resolve);
+        var textures = new java.util.ArrayList<IGpuTexture>();
+        var pipelines = new java.util.ArrayList<IGpuPipeline>();
+        when(backend.createTexture()).thenAnswer(call -> {
+            var acquired = textures.isEmpty() ? texture : mock(IGpuTexture.class, RETURNS_SELF);
+            textures.add(acquired);return acquired;
+        });
+        when(backend.createBuffer(anyLong())).thenReturn(mock(IGpuBuffer.class));
+        when(backend.createGraphicsPipeline(any())).thenAnswer(call -> {
+            var acquired = mock(IGpuPipeline.class);pipelines.add(acquired);return acquired;
+        });
         var failure = new IllegalStateException("injected release failure");
         doThrow(failure).when(texture).free();
         try (var bridges = mockStatic(IOSurfaceBridge.class)) {
             bridges.when(() -> IOSurfaceBridge.create(anyLong(), anyInt(), anyInt(), any())).thenReturn(bridge);
-            var targets = new MetalFrameTargets(backend, new MetalFrameTargets.Layout(16,16,false,false,false,false));
+            var descriptor = new GraphicsPipelineDesc("", "", java.util.Map.of(), null, null, null, null,
+                    org.lwjgl.opengl.GL11C.GL_RGBA8, VertexLayout.EMPTY, PipelineState.DEFAULT, "ownership fixture");
+            var config = new me.cortex.voxy.client.core.rendering.section.backend.mdic.TerrainShaderConfiguration(descriptor, descriptor);
+            var targets = new MetalFrameTargets(backend, new MetalFrameTargets.Layout(16,16,false,false,false,false), config);
             set(frame, "targets", targets);
             try { frame.close(); throw new AssertionError("cleanup failure hidden"); }
             catch (IllegalStateException expected) { require(expected == failure, "close lost first failure"); }
-            verify(bridge).close(); verify(texture).free(); verify(prelit).free(); verify(resolve).close();
-            clearInvocations(bridge, texture, prelit, resolve);
+            verify(bridge).close();
+            textures.forEach(owner -> verify(owner).free());pipelines.forEach(owner -> verify(owner).close());
+            clearInvocations(bridge);textures.forEach(org.mockito.Mockito::clearInvocations);pipelines.forEach(org.mockito.Mockito::clearInvocations);
             frame.close();
-            verifyNoInteractions(bridge, texture, prelit, resolve);
+            verifyNoInteractions(bridge);textures.forEach(org.mockito.Mockito::verifyNoInteractions);pipelines.forEach(org.mockito.Mockito::verifyNoInteractions);
         }
     }
     private static void construction() throws Exception {
