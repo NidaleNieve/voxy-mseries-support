@@ -70,8 +70,9 @@ public abstract class MixinLevelRenderer implements IGetVoxyRenderSystem {
     @Override
     public void shutdownRenderer() {
         if (this.renderer != null) {
-            this.renderer.shutdown();
+            var retired = this.renderer;
             this.renderer = null;
+            retired.shutdown();
         }
     }
 

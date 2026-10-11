@@ -313,30 +313,16 @@ public class RenderGenerationService {
     }
     */
 
-    public void shutdown() {
-        //Steal and free as much work as possible
-        while (this.service.numJobs() != 0) {
-            int i = this.service.drain();
-            if (i == 0) break;
-            {
-                long stamp = this.taskMapLock.writeLock();
-                for (int j = 0; j < i; j++) {
-                    var task = this.taskQueue.remove();
-                    if (task.section != null) {
-                        task.section.release();
-                        this.holdingSectionCount.decrementAndGet();
-                    }
-                    if (this.taskMap.remove(task.position) != task) {
-                        throw new IllegalStateException();
-                    }
-                }
-                this.taskMapLock.unlockWrite(stamp);
-                this.taskQueueCount.addAndGet(-i);
-            }
+    private boolean quiesced;
+    public void quiesce() {
+        if (!this.quiesced) {
+            this.service.shutdown();
+            this.quiesced = true;
         }
+    }
 
-        //Shutdown the threads
-        this.service.shutdown();
+    public void shutdown() {
+        this.quiesce();
 
         //Cleanup any remaining data
         while (!this.taskQueue.isEmpty()) {

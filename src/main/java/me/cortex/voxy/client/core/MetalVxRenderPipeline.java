@@ -46,10 +46,8 @@ public class MetalVxRenderPipeline extends NormalRenderPipeline {
     }
 
     @Override protected void free0() {
-        try {
-            this.uniforms.close();
-            me.cortex.voxy.client.core.util.MetalVxResolvePass.reset();
-        } finally { super.free0(); }
+        me.cortex.voxy.common.util.ResourceCleanup.run(this.uniforms::close,
+                me.cortex.voxy.client.core.util.MetalVxResolvePass::reset, super::free0);
     }
 
     @Override
@@ -67,15 +65,15 @@ public class MetalVxRenderPipeline extends NormalRenderPipeline {
 
     public boolean beginMaterialFrame() {
         return this.frames.begin(net.irisshaders.iris.Iris.getPipelineManager().getPipelineNullable(),
-                net.irisshaders.iris.uniforms.SystemTimeUniforms.COUNTER.getAsInt(),
+                WorldFrameCapture.frame(),
                 me.cortex.voxy.client.core.util.IrisUtil.shadowsBeingRendered());
     }
     public void publishMaterialFrame() {
-        this.frames.publish(net.irisshaders.iris.uniforms.SystemTimeUniforms.COUNTER.getAsInt());
+        this.frames.publish(WorldFrameCapture.frame());
     }
     public void resolveMaterialFrame(me.cortex.voxy.client.core.rendering.Viewport<?> viewport) {
         var iris=net.irisshaders.iris.Iris.getPipelineManager().getPipelineNullable();
-        if (this.frames.consume(iris,net.irisshaders.iris.uniforms.SystemTimeUniforms.COUNTER.getAsInt())
+        if (this.frames.consume(iris,WorldFrameCapture.frame())
                 && iris instanceof net.irisshaders.iris.pipeline.IrisRenderingPipeline pipeline) {
             if (!MetalMaterialCompositor.resolve(this,pipeline,viewport) && !this.warnedIncomplete) {
                 this.warnedIncomplete=true;

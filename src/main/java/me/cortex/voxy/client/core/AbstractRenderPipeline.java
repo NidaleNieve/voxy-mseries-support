@@ -243,6 +243,7 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
             DownloadStream.INSTANCE.tick();
             TimingStatistics.D.stop();
 
+            this.nodeCleaner.beginFrame(viewport.frameId);
             this.nodeManager.tick(this.traversal.getNodeBuffer(), this.nodeCleaner);
             //glFlush();
 
@@ -261,13 +262,11 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
 
     @Override
     protected void free0() {
-        this.fb.free();
-        this.sectionRenderer.free();
-        this.depthMaskBlit.delete();
-        this.depthSetBlit.delete();
-        this.depthCopy.delete();
-        this.metalFrameRenderer.close();
-        super.free0();
+        me.cortex.voxy.common.util.ResourceCleanup.run(
+                this.fb::free,
+                () -> { if (this.sectionRenderer != null) this.sectionRenderer.free(); },
+                this.depthMaskBlit::delete, this.depthSetBlit::delete, this.depthCopy::delete,
+                this.metalFrameRenderer::close, super::free0);
     }
 
     /** Accessor for the compositing mixin so it can grab the bridge's GL texture name. */
