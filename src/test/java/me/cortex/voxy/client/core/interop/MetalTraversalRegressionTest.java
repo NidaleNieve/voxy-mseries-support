@@ -74,6 +74,7 @@ public final class MetalTraversalRegressionTest {
             require(MemoryUtil.memGetInt(pointer(buffers[2]))==1,"unready descendants were not requested");
             require(MemoryUtil.memGetInt(pointer(buffers[3]))==1 && MemoryUtil.memGetInt(pointer(buffers[3])+4)==9,"available parent disappeared before descendants arrived");
             System.out.println("PASS: available parent remains visible while descendants are unavailable");
+            cameraJumpChecks(backend, pipeline, buffers, hiz, sampler, push, nodes, parent, child);
         } finally {
             if (pipeline != null) pipeline.close();
             if (sampler != null) sampler.close();
@@ -81,6 +82,92 @@ public final class MetalTraversalRegressionTest {
             for (var buffer : buffers) if (buffer != null) buffer.free();
             MemoryUtil.nmemFree(push); backend.shutdown(); RenderBackendFactory.set(null);
         }
+    }
+    /** Controlled GPU scene: retained node tables, camera jumps, and readiness transitions. */
+    private static void cameraJumpChecks(MetalRenderBackend backend, IGpuPipeline pipeline,
+                                         IGpuBuffer[] buffers, MetalTexture hiz, IGpuSampler sampler,
+                                         long push, NodeStore nodes, int parent, int child) {
+        int[][] origins = {{0,0,0}, {-13,-7,-17}, {13,7,17},
+                {-1_000_000,-63,1_000_000}, {1_000_000,63,-1_000_000}};
+        long scene = pointer(buffers[1]);
+        int frame = 100;
+        int dispatches = 0;
+        // Five active planes: +/- X constrain the view; the remaining three pass.
+        for (int plane = 0; plane < 6; plane++) {
+            for (int component = 0; component < 4; component++) {
+                MemoryUtil.memPutFloat(scene + 96 + plane * 16L + component * 4L,
+                        component == 3 ? 128 : 0);
+            }
+        }
+        MemoryUtil.memPutFloat(scene + 96, 1);
+        MemoryUtil.memPutFloat(scene + 112, -1);
+        MemoryUtil.memPutFloat(scene + 80, 0);
+        MemoryUtil.memPutFloat(scene + 84, 0);
+        MemoryUtil.memPutFloat(scene + 88, 0);
+        for (int[] origin : origins) {
+            long parentPosition = WorldEngine.getWorldSectionId(1, origin[0], origin[1], origin[2]);
+            long childPosition = WorldEngine.getWorldSectionId(0, origin[0]*2, origin[1]*2, origin[2]*2);
+            nodes.setNodePosition(parent, parentPosition);
+            nodes.setNodePosition(child, childPosition);
+            nodes.setNodeGeometry(parent, 9);
+            nodes.setNodeGeometry(child, 7);
+            nodes.setNodeChildExistence(parent, (byte)1);
+            nodes.setChildPtrCount(parent, 1);
+            nodes.setChildPtrCount(child, 1);
+            nodes.writeNode(pointer(buffers[4])+child*16L, child);
+            for (int cycle = 0; cycle < 48; cycle++) {
+                boolean descendantsReady = cycle % 3 != 1;
+                boolean fine = cycle % 3 != 0;
+                nodes.setChildPtr(parent, descendantsReady ? child : -1);
+                nodes.writeNode(pointer(buffers[4])+parent*16L, parent);
+                for (int view = 0; view < 4; view++) {
+                    boolean away = view % 2 == 1;
+                    buffers[2].zero(); buffers[3].zero(); buffers[6].zero(); buffers[8].zero();
+                    MemoryUtil.memPutInt(scene + 64, origin[0]*2 + (away ? 32 : 0));
+                    MemoryUtil.memPutInt(scene + 68, origin[1]*2);
+                    MemoryUtil.memPutInt(scene + 72, origin[2]*2);
+                    MemoryUtil.memPutFloat(scene + 92, fine ? -1 : 1_000_000);
+                    MemoryUtil.memPutInt(scene + 196, ++frame);
+                    dispatch(backend, pipeline, buffers, hiz, sampler, push, parent, 0);
+                    dispatches++;
+                    require(MemoryUtil.memGetInt(pointer(buffers[4])+parent*16L) == (int)(parentPosition >>> 32) &&
+                                    MemoryUtil.memGetInt(pointer(buffers[4])+parent*16L+4) == (int)parentPosition,
+                            "camera jump changed the retained parent position");
+                    require((MemoryUtil.memGetInt(pointer(buffers[4])+parent*16L+8)&0xffffff) == 9,
+                            "camera jump changed the retained parent mesh");
+                    if (away) {
+                        require(MemoryUtil.memGetInt(pointer(buffers[3])) == 0,
+                                "out-of-frustum retained node was drawn");
+                        require(MemoryUtil.memGetInt(pointer(buffers[2])) == 0,
+                                "out-of-frustum retained node requested geometry");
+                        continue;
+                    }
+                    if (fine && descendantsReady) {
+                        require(MemoryUtil.memGetInt(pointer(buffers[6])+28) == 1,
+                                "returned camera lost the ready child");
+                        require(MemoryUtil.memGetInt(pointer(buffers[8])) == child,
+                                "returned camera selected the wrong child");
+                        dispatch(backend, pipeline, buffers, hiz, sampler, push, child, 1);
+                        dispatches++;
+                    }
+                    int mesh = fine && descendantsReady ? 7 : 9;
+                    int drawnNode = fine && descendantsReady ? child : parent;
+                    require(MemoryUtil.memGetInt(pointer(buffers[3])) == 1 &&
+                                    MemoryUtil.memGetInt(pointer(buffers[3])+4) == mesh,
+                            "return after camera jump lost or changed cached geometry");
+                    require(MemoryUtil.memGetInt(pointer(buffers[9])+drawnNode*4L) == frame,
+                            "returned geometry received a stale visibility stamp");
+                    if (fine && !descendantsReady) {
+                        require(MemoryUtil.memGetInt(pointer(buffers[2])) == 1,
+                                "unavailable descendants were not requested on return");
+                        // Simulate CPU acknowledgement before the next independent view.
+                        nodes.writeNode(pointer(buffers[4])+parent*16L, parent);
+                    }
+                }
+            }
+        }
+        System.out.println("PASS: 960 camera-jump frames / " + dispatches +
+                " Metal dispatches preserve cached mesh identities, parent fallback, signed positions and visibility stamps");
     }
     private static void dispatch(MetalRenderBackend backend,IGpuPipeline pipeline,IGpuBuffer[] buffers,
                                  MetalTexture hiz,IGpuSampler sampler,long push,int node,int iteration) {

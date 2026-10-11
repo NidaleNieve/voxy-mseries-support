@@ -13,7 +13,7 @@ import static org.lwjgl.opengl.GL11C.GL_RGBA8;
 import static org.lwjgl.opengl.GL11C.GL_TEXTURE_2D;
 
 /** Metal bakery owner. Color and drawn/tint metadata share identical face viewports.
- * Depth remains the fork's existing synthetic convention; coverage is never synthesized from color.
+ * The metadata target carries legacy depth plus independent coverage/tint flags.
  */
 public final class MetalViewCapture {
     private final int width;        // per-face cell width
@@ -24,6 +24,7 @@ public final class MetalViewCapture {
     private final RenderBackend backend;
     private final MetalTexture bakeTarget;
     private final MetalTexture metadataTarget;
+    private final MetalTexture depthTarget;
     private final AtlasMirror atlasMirror;
     private final MetalBudgetBufferRenderer renderer;
     private final long readbackBuffer;
@@ -42,7 +43,7 @@ public final class MetalViewCapture {
                     "MetalViewCapture is Metal-only — GL goes through GlViewCapture.");
         }
 
-        MetalTexture color = null, metadata = null;
+        MetalTexture color = null, metadata = null, depth = null;
         AtlasMirror mirror = null;
         MetalBudgetBufferRenderer draws = null;
         long colors = 0, flags = 0;
@@ -50,6 +51,9 @@ public final class MetalViewCapture {
         try {
             color = target("Voxy.MetalBakeColor");
             metadata = target("Voxy.MetalBakeMetadata");
+            depth = (MetalTexture)this.backend.createTexture(GL_TEXTURE_2D);
+            depth.store(org.lwjgl.opengl.GL30C.GL_DEPTH_COMPONENT32F, 1, this.totalW, this.totalH);
+            depth.name("Voxy.MetalBakeDepth");
             mirror = new AtlasMirror();
             draws = new MetalBudgetBufferRenderer();
             colors = MemoryUtil.nmemAllocChecked(this.readbackBytes);
@@ -57,6 +61,7 @@ public final class MetalViewCapture {
         } catch (Throwable error) {
             if (draws != null) draws.shutdown();
             if (mirror != null) mirror.free();
+            if (depth != null) depth.free();
             if (metadata != null) metadata.free();
             if (color != null) color.free();
             if (colors != 0) MemoryUtil.nmemFree(colors);
@@ -65,6 +70,7 @@ public final class MetalViewCapture {
         }
         this.bakeTarget = color;
         this.metadataTarget = metadata;
+        this.depthTarget = depth;
         this.atlasMirror = mirror;
         this.renderer = draws;
         this.readbackBuffer = colors;
@@ -84,12 +90,12 @@ public final class MetalViewCapture {
         if (this.activeBake) {
             throw new IllegalStateException("clear() while a bake pass is active");
         }
-        // Open + immediately close a CLEAR pass. The Metal driver collapses
-        // this into a single clearColor command on the bake target.
+        // Clear all attachments together, including nearest-surface ownership.
         try (var enc = this.backend.beginRenderPass(
                 me.cortex.voxy.client.core.gpu.RenderPassDesc.builder(this.totalW, this.totalH)
                         .clearColor(this.bakeTarget, 0f, 0f, 0f, 0f)
                         .clearColor(this.metadataTarget, 0f, 0f, 0f, 0f)
+                        .clearDepth(this.depthTarget, 0f)
                         .build())) {
             enc.setViewport(0, 0, this.totalW, this.totalH, 0, 1);
         }
@@ -105,7 +111,7 @@ public final class MetalViewCapture {
             this.clear(); // Never publish the previous block's bake.
             return;
         }
-        this.renderer.beginPass(this.bakeTarget, this.metadataTarget, this.totalW, this.totalH, clear);
+        this.renderer.beginPass(this.bakeTarget, this.metadataTarget, this.depthTarget, this.totalW, this.totalH, clear);
         this.renderer.setup(meshAddr, quadCount, atlas, this.atlasMirror.sampler());
         this.activeBake = true;
     }
@@ -148,7 +154,7 @@ public final class MetalViewCapture {
                     int flags = MemoryUtil.memGetInt(this.metadataReadback + src);
                     boolean drawn = (flags >>> 24) != 0;
                     MemoryUtil.memPutInt(dst, rgba);
-                    MemoryUtil.memPutInt(dst + 4, drawn ? 1 | ((flags & 255) != 0 ? 128 : 0) : 0);
+                    MemoryUtil.memPutInt(dst + 4, drawn ? ((flags & 0xffffff) << 8) | (flags >>> 24) : 0);
                 }
             }
         }
@@ -160,6 +166,7 @@ public final class MetalViewCapture {
         this.atlasMirror.free();
         this.bakeTarget.free();
         this.metadataTarget.free();
+        this.depthTarget.free();
         MemoryUtil.nmemFree(this.readbackBuffer);
         MemoryUtil.nmemFree(this.metadataReadback);
     }

@@ -566,8 +566,8 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
 
     /**
      * M12 Metal-side translucent render — uses the dedicated translucent
-     * pipeline ({@code TRANSLUCENT_MESH}-style state with depth-test-no-write
-     * + premultiplied-alpha blend, both baked in at pipeline creation) and
+     * pipeline (Metal surface depth-test-and-write state
+     * + mode-specific blending, both baked in at pipeline creation) and
      * draws from the translucent slice of {@code drawCallBuffer}
      * ({@code TRANSLUCENT_OFFSET}+ slots, populated by buildtranslucents.comp).
      * Same SSBO bindings as opaque since both share quads3.vert + quads.frag;
@@ -575,12 +575,16 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
      * changes needed.
      */
     public void renderTranslucentMetal(me.cortex.voxy.client.core.gpu.RenderEncoder encoder, MDICViewport viewport) {
-        if (this.geometryManager.getSectionCount() == 0) return;
-        if (this.translucentTerrainPipeline == null) return;
+        renderTranslucentMetal(encoder, viewport, this.translucentTerrainPipeline);
+    }
+
+    /** Shares geometry bindings and draw bounds with the shaders-off layer captures. */
+    public void renderTranslucentMetal(me.cortex.voxy.client.core.gpu.RenderEncoder encoder, MDICViewport viewport, me.cortex.voxy.client.core.gpu.IGpuPipeline layerPipeline) {
+        if (this.geometryManager.getSectionCount() == 0 || layerPipeline == null) return;
         int translucentMax = Math.min(this.geometryManager.getSectionCount(), 100_000);
         translucentMax = metalDrawCount(viewport, TRANSLUCENT_DRAW_COUNT_OFFSET, translucentMax);
         if (translucentMax == 0) return;
-        this.renderTerrainMetal(encoder, this.translucentTerrainPipeline, viewport,
+        this.renderTerrainMetal(encoder, layerPipeline, viewport,
                 /*indirectOffset bytes*/ (long) TRANSLUCENT_OFFSET * 5L * 4L,
                 translucentMax);
     }

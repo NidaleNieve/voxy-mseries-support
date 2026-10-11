@@ -22,6 +22,50 @@ final class MetalFrameDiagnostics implements AutoCloseable {
     private IGpuBuffer depthReadback;
     private IGpuBuffer translucentDepthReadback;
 
+    private me.cortex.voxy.common.util.ResourceScope prelitResources;
+    private IGpuBuffer[] prelitReadbacks;
+    private long prelitBytes;
+
+    /** Samples the uncombined ice/fluid/background only on the same bounded view-probe frame. */
+    void samplePrelit(MetalRenderBackend backend, Viewport<?> viewport,
+                      me.cortex.voxy.client.core.interop.MetalPrelitLayers.Inputs inputs) {
+        var level=net.minecraft.client.Minecraft.getInstance().level;
+        if(level==null || !SectionProbe.captureStage(level.dimension().identifier().toString(),"prelit-inputs")) return;
+        long bytes=(long)viewport.width*viewport.height*4;
+        if(prelitReadbacks==null || prelitBytes!=bytes) {
+            var next=new me.cortex.voxy.common.util.ResourceScope();
+            var buffers=new IGpuBuffer[5];
+            try {
+                for(int i=0;i<buffers.length;i++)buffers[i]=next.own(backend.createBuffer(bytes),IGpuBuffer::free);
+            } catch(RuntimeException | Error failure) {next.rollback(failure);throw failure;}
+            var retired=prelitResources;
+            prelitResources=next;prelitReadbacks=buffers;prelitBytes=bytes;
+            if(retired!=null)retired.close();
+        }
+        var textures=new IGpuTexture[]{inputs.opaque(),inputs.surface(),inputs.surfaceDepth(),inputs.fluid(),inputs.fluidDepth()};
+        for(int i=0;i<textures.length;i++)backend.copyTextureToBuffer(textures[i],prelitReadbacks[i],viewport.width,viewport.height);
+        backend.submit(); // Diagnostic-only wait; no copies or allocations outside an active selected probe.
+        long offset=4L*((long)(viewport.height/2)*viewport.width+viewport.width/2);
+        var values=new StringBuilder();
+        String[] labels={"opaque","surface","surfaceDepth","fluid","fluidDepth"};
+        for(int i=0;i<prelitReadbacks.length;i++) {
+            long address=((MetalBuffer)prelitReadbacks[i]).getContentsPtr()+offset;
+            values.append(labels[i]).append('=');
+            if(i==2 || i==4)values.append(MemoryUtil.memGetFloat(address));
+            else {
+                // The opaque IOSurface is BGRA; private layer textures are RGBA.
+                values.append('[');
+                for(int channel=0;channel<4;channel++) {
+                    if(channel>0)values.append(',');
+                    values.append((MemoryUtil.memGetByte(address+(i==0 && channel<3?2-channel:channel))&255)/255f);
+                }
+                values.append(']');
+            }
+            values.append(' ');
+        }
+        Logger.info("[Metal-Prelit-Probe] frame="+WorldFrameCapture.frame()+" viewportFrame="+viewport.frameId+" "+values);
+    }
+
     void sample(MetalRenderBackend backend, Viewport<?> viewport, IOSurfaceBridge color,
                 IGpuTexture depth, IOSurfaceBridge translucentColor, IGpuTexture translucentDepth,
                 BasicSectionGeometryData geometry, boolean pending,
@@ -205,7 +249,11 @@ final class MetalFrameDiagnostics implements AutoCloseable {
     }
 
     @Override public void close() {
-        if (this.depthReadback != null) { this.depthReadback.free(); this.depthReadback = null; }
-        if (this.translucentDepthReadback != null) { this.translucentDepthReadback.free(); this.translucentDepthReadback = null; }
+        var prelit=this.prelitResources;var depth=this.depthReadback;var translucent=this.translucentDepthReadback;
+        this.prelitResources=null;this.prelitReadbacks=null;this.depthReadback=null;this.translucentDepthReadback=null;
+        me.cortex.voxy.common.util.ResourceCleanup.run(
+                () -> {if(prelit!=null)prelit.close();},
+                () -> {if(depth!=null)depth.free();},
+                () -> {if(translucent!=null)translucent.free();});
     }
 }

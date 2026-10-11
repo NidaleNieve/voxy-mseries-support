@@ -549,25 +549,6 @@ public class ModelFactory {
             }
         }
 
-        // Metal fluid surface height (2026-06-10): the Metal capture path
-        // records coverage/tint independently, but still has no real depth
-        // bits in MetalViewCapture.emitToStream, so computeModelDepth returns 0
-        // for the fluid UP face and the LOD water plane lands at the full
-        // block top (1.0) instead of MC's 8/9 ≈ 0.889 — a visible step at the
-        // LOD<->MC water seam and a 0.111-block eye-level window where the two
-        // sides disagree about "above water". Use the fluid's real own height
-        // (packs enc=7 → plane at 0.8906, within 0.002 of MC). GL bakes real
-        // depth and never hits the ==0 condition.
-        if (isFluid
-                && me.cortex.voxy.client.core.gpu.RenderBackendFactory.get().getType()
-                        != me.cortex.voxy.client.core.gpu.BackendType.OPENGL) {
-            int up = Direction.UP.get3DDataValue();
-            float ownHeight = blockState.getFluidState().getOwnHeight();
-            if (sizes[up] >= 0.0f && sizes[up] < 0.01f && ownHeight > 0.0f && ownHeight < 1.0f) {
-                sizes[up] = 1.0f - ownHeight;
-            }
-        }
-
         //TODO: THIS, note this can be tested for in 2 ways, re render the model with quad culling disabled and see if the result
         // is the same, (if yes then needs double sided quads)
         // another way to test it is if e.g. up and down havent got anything rendered but the sides do (e.g. all plants etc)
@@ -728,6 +709,7 @@ public class ModelFactory {
         modelFlags |= colourProvider != null?1:0;
         modelFlags |= isBiomeColourDependent?2:0;//Basicly whether to use the next int as a colour or as a base index/id into a colour buffer for biome dependent colours
         modelFlags |= blockRenderLayer == ChunkSectionLayer.TRANSLUCENT?4:0;//Is translucent
+        modelFlags |= isFluid?16:0;//Runtime-only fluid identity; distinct from ice/glass
 
 
         //TODO: THIS

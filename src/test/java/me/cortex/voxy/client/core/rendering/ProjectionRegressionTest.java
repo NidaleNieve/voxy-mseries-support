@@ -33,7 +33,7 @@ public final class ProjectionRegressionTest {
         int failures = 0, cases = 0;
         try (var singleton = mockStatic(Minecraft.class)) {
             singleton.when(Minecraft::getInstance).thenReturn(client);
-            for (float fov : new float[]{35, 70, 110}) {
+            for (float fov : new float[]{1, 7, 35, 70, 110}) {
                 when(renderer.getFov(any(), anyFloat(), eq(true))).thenReturn(fov);
                 for (int width : new int[]{1280, 1920}) {
                     when(window.getWidth()).thenReturn(width); when(window.getHeight()).thenReturn(720);

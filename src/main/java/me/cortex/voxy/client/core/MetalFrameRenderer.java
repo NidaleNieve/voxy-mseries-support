@@ -27,7 +27,8 @@ final class MetalFrameRenderer implements AutoCloseable {
     private MetalFrameTargets targets;
     private void ensureTargets(me.cortex.voxy.client.core.metal.MetalRenderBackend backend, MetalFrameTargets.Layout layout) {
         if (this.targets != null && this.targets.layout.equals(layout)) return;
-        var next = new MetalFrameTargets(backend, layout);
+        var next = new MetalFrameTargets(backend, layout, !layout.exportDepth()
+                ? me.cortex.voxy.client.core.rendering.section.backend.mdic.TerrainShaderConfiguration.load(this.pipeline, me.cortex.voxy.client.core.gpu.BackendType.METAL) : null);
         var retired = this.targets;
         this.targets = next;
         if (retired != null) retired.close();
@@ -193,10 +194,20 @@ final class MetalFrameRenderer implements AutoCloseable {
                 // pack's deferred composites LOD water as WATER instead of
                 // shading it as opaque land.
                 if (!this.pipeline.deferTranslucency && !vxMaterial
-                        && !vxContract) {
+                        && !vxContract && this.targets.prelit == null) {
                     mdic.renderTranslucentMetal(enc, mv);
                 }
             }
+        }
+        if (this.targets.prelit != null && !this.pipeline.deferTranslucency) {
+            final boolean drawTerrain = !bridgeSolidTest && !submersionSkip;
+            this.targets.prelit.render(this.targets.color.asGpuTexture(), this.targets.depth, (encoder, layer) -> {
+                if (drawTerrain
+                        && this.pipeline.sectionRenderer instanceof me.cortex.voxy.client.core.rendering.section.backend.mdic.MDICSectionRenderer mdic
+                        && viewport instanceof me.cortex.voxy.client.core.rendering.section.backend.mdic.MDICViewport mv) {
+                    mdic.renderTranslucentMetal(encoder, mv, layer);
+                }
+            }, inputs -> this.diagnostics.samplePrelit(mrb, viewport, inputs));
         }
         // Iris gbuffer injection: export the LOD pass's depth into the R32F
         // depth bridge so the GL-side injector can unproject it back into

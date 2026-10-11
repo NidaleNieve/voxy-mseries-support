@@ -9,6 +9,18 @@ import static org.lwjgl.opengl.GL11C.GL_RGBA8;
 /** Canonical unpatched terrain descriptors, shared by production and driver verification. */
 public record TerrainShaderConfiguration(GraphicsPipelineDesc opaque, GraphicsPipelineDesc translucent) {
 
+    /** Shaders-off captures one nearest surface in each translucent category. */
+    public GraphicsPipelineDesc prelitLayer(boolean fluid) {
+        if (translucent.defines.containsKey("PATCHED_SHADER")) {
+            throw new IllegalStateException("Prelit layers require the shaders-off terrain descriptor");
+        }
+        var defines = new java.util.LinkedHashMap<>(translucent.defines);
+        defines.put("VOXY_PRELIT_LAYER", fluid ? "1" : "0");
+        return new GraphicsPipelineDesc(translucent.vertexGlsl, translucent.fragmentGlsl, defines,
+                null, null, null, null, new int[]{GL_RGBA8, org.lwjgl.opengl.GL30C.GL_R32F},
+                translucent.vertexLayout, translucent.state, "MetalPrelitLayer." + (fluid ? "fluid" : "surface"));
+    }
+
     static final float WATER_FAR_ALPHA = parseEnvFloat("VOXY_WATER_FAR_ALPHA", 0.95f);
     static final float WATER_FAR_ALPHA_START = parseEnvFloat("VOXY_WATER_FAR_ALPHA_START", 0.0f);
     static final float WATER_FAR_ALPHA_END = parseEnvFloat("VOXY_WATER_FAR_ALPHA_END", 0.0f);
@@ -157,13 +169,13 @@ public record TerrainShaderConfiguration(GraphicsPipelineDesc opaque, GraphicsPi
             }
             boolean vxContract = me.cortex.voxy.client.core.util.IrisUtil.vxContractActive();
             if (!vxContract) {
-                float brightness = 0.92f;
+                float brightness = 1.0f;
                 String b = System.getenv("VOXY_LOD_BRIGHTNESS");
                 if (b != null && !b.isBlank()) {
                     try {
                         brightness = Float.parseFloat(b.trim());
                     } catch (NumberFormatException e) {
-                        brightness = 0.92f;
+                        brightness = 1.0f;
                     }
                 }
                 if (brightness != 1.0f) {
@@ -248,10 +260,11 @@ public record TerrainShaderConfiguration(GraphicsPipelineDesc opaque, GraphicsPi
                     PipelineState.BlendState.OPAQUE,
                     PipelineState.RasterState.NO_CULL);
             boolean waterDebugDepth = "1".equals(System.getenv("VOXY_LOD_WATER_DEBUG"));
-            var transDepthState = (pipeline.vxMaterialMode() || me.cortex.voxy.client.core.util.IrisUtil.vxContractActive())
-                    ? PipelineState.DepthState.DEFAULT
-                    : PipelineState.DepthState.TEST_NO_WRITE;
-            var transBlend = vxMaterial && !"1".equals(System.getenv("VOXY_VX_PLANE_BLEND"))
+            // The nearest translucent surface owns this bridge pixel. Without depth writes,
+            // later water/back faces inside a section can blend over nearer ice.
+            var transDepthState = PipelineState.DepthState.DEFAULT;
+            var transBlend = pipeline.materialPolicy() == me.cortex.voxy.client.core.MetalMaterialPolicy.SHADERS_OFF
+                    || (vxMaterial && !"1".equals(System.getenv("VOXY_VX_PLANE_BLEND")))
                     ? PipelineState.BlendState.OPAQUE
                     : PipelineState.BlendState.PREMULTIPLIED_ALPHA;
             translucentState = new PipelineState(

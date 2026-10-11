@@ -17,7 +17,8 @@ public final class FrameTargetRegressionTest {
         try { test.run(); System.out.println("PASS: " + name); }
         catch (Throwable error) { failures++; error.printStackTrace(); System.err.println("FAIL: " + name); }
     }
-    static void scenario(int failedAllocation) {
+    static void scenario(int failedAllocation) { scenario(failedAllocation,MetalMaterialPolicy.CONTRACT); }
+    static int scenario(int failedAllocation,MetalMaterialPolicy mode) {
         var backend = mock(MetalRenderBackend.class);
         RenderBackendFactory.set(backend);
         var acquired = new ArrayList<Owned>();
@@ -41,9 +42,14 @@ public final class FrameTargetRegressionTest {
         when(backend.beginRenderPass(any())).thenReturn(mock(RenderEncoder.class));
         when(backend.createFence()).thenAnswer(call -> { var fence = mock(IGpuFence.class); when(fence.signaled()).thenReturn(true); return fence; });
         when(backend.createPersistentBuffer(anyLong(), anyInt())).thenReturn(mock(IGpuPersistentBuffer.class, RETURNS_SELF));
+        when(backend.createGraphicsPipeline(any())).thenAnswer(call -> {
+            acquisition.run();var graphics=mock(IGpuPipeline.class);acquired.add(new Owned(graphics,graphics::close));return graphics;
+        });
         var pipeline = mock(AbstractRenderPipeline.class);
-        when(pipeline.vxMaterialMode()).thenReturn(true); when(pipeline.vxOpaqueMaterialMode()).thenReturn(true);
-        when(pipeline.materialPolicy()).thenReturn(MetalMaterialPolicy.CONTRACT);
+        when(pipeline.vxMaterialMode()).thenReturn(mode!=MetalMaterialPolicy.SHADERS_OFF);
+        when(pipeline.vxOpaqueMaterialMode()).thenReturn(mode.opaque());
+        when(pipeline.materialPolicy()).thenReturn(mode);
+        int allocationCount=0;
         pipeline.sectionRenderer = mock(MDICSectionRenderer.class);
         var viewport = mock(MDICViewport.class); viewport.width = 16; viewport.height = 16;
         try {
@@ -64,7 +70,7 @@ public final class FrameTargetRegressionTest {
             try {
                 frame.render(viewport, 0);
                 var originalBridge = frame.metalBridge();
-                var old = List.copyOf(acquired); int allocationCount = count[0];
+                var old = List.copyOf(acquired); allocationCount = count[0];
                 frame.render(viewport, 0);
                 if (count[0] != allocationCount) throw new AssertionError("same-size frame reallocated targets");
                 if (failedAllocation > allocationCount) throw new AssertionError("unexercised acquisition " + failedAllocation);
@@ -86,17 +92,24 @@ public final class FrameTargetRegressionTest {
             for (var helper : exports.constructed()) verify(helper).close();
             for (var helper : restores.constructed()) verify(helper).close();
         }
+        return allocationCount;
     }
     private static void verifyRelease(Owned owner, int times) {
         if (owner.resource instanceof IOSurfaceBridge bridge) verify(bridge, org.mockito.Mockito.times(times)).close();
         else if (owner.resource instanceof IGpuBuffer buffer) verify(buffer, org.mockito.Mockito.times(times)).free();
         else if (owner.resource instanceof IGpuTexture texture) verify(texture, org.mockito.Mockito.times(times)).free();
+        else if (owner.resource instanceof IGpuPipeline pipeline) verify(pipeline, org.mockito.Mockito.times(times)).close();
     }
     public static void main(String[] args) {
         net.minecraft.SharedConstants.tryDetectVersion(); net.minecraft.server.Bootstrap.bootStrap();
         me.cortex.voxy.common.Logger.SHUTUP = true;
         try (var context = new TestGlContext(); var minecraft = mockStatic(net.minecraft.client.Minecraft.class)) {
             minecraft.when(net.minecraft.client.Minecraft::getInstance).thenReturn(mock(net.minecraft.client.Minecraft.class));
+            int plainCount=scenario(0,MetalMaterialPolicy.SHADERS_OFF);
+            for(int stage=1;stage<=plainCount;stage++) {
+                int allocation=stage;
+                check("shaders-off target rollback "+stage,()->scenario(allocation,MetalMaterialPolicy.SHADERS_OFF));
+            }
             check("successful target replacement retires the complete old set", () -> scenario(0));
             for (int stage = 1; stage <= 13; stage++) {
                 int allocation = stage;
