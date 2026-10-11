@@ -1,5 +1,6 @@
 # Project exclude paths
 /.gradle/
+/.gradle-local/
 /.idea/
 /build/
 /run/
@@ -9,6 +10,15 @@
 # macOS
 .DS_Store
 
-# Keep local launcher configuration and Gradle cache private.
-/.gradle-local/
+# Local diagnostics and generated publication/deployment records
+__pycache__/
+*.py[cod]
+hs_err_pid*.log
+/docs/validation/
+/docs/DEPLOYED-PHASES.json
+/docs/*-RESULTS.md
+/docs/LOCAL-STABILIZATION.md
+/docs/METAL-BOUNDARY-WATER-IN-PROGRESS.md
+/docs/NEXT-RENDER-STABILIZATION-PLAN.md
+/test-shaderpacks/
 /.voxy-deploy-mods
